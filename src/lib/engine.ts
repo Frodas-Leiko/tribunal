@@ -105,7 +105,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const skipEvalBeatRef = useRef(-1); // Beat, der bereits per Anschlag bewertet wurde
   const streakRef = useRef(0);
   const offsetsRef = useRef<number[]>([]);
-  const statsRef = useRef<StatsData>(loadStats());
+  const statsRef = useRef<StatsData>(loadStats().data);
   const upDownRef = useRef(0);
   const clockRef = useRef<ClockRef>({ segStartPerf: 0, segDur: 0.2, segInBeat: 0, subs: 4, active: false, beatStartPerf: 0, beatDur: 0.5 });
   const evalTimersRef = useRef<number[]>([]);
@@ -204,9 +204,8 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     let banner: string;
     if (config.source === 'stufen' && config.mode !== 'C') {
       if (tempoRef.current === config.levelTempo) {
-        const stored = JSON.parse(localStorage.getItem('tribunal.progress.v1') ?? '{}');
-        const res = passTempo(stored, config.keyId, config.mode);
-        localStorage.setItem('tribunal.progress.v1', JSON.stringify(res.map));
+        // R24: Eine Tür. Die Engine kennt keinen Speicher-Schlüssel mehr.
+        const res = passTempo(config.keyId, config.mode);
         banner = res.justCompleted
           ? `Modus ${config.mode} abgeschlossen! ${config.mode === 'A' ? 'Modus B ist jetzt dein Prüfstein.' : 'Diese Tonart sitzt.'}`
           : `Serie geschafft – Tempo-Level steigt auf ${res.newTempo} bpm.`;

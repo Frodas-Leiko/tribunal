@@ -13,10 +13,10 @@ export default function App() {
   const [view, setView] = useState<View>('home');
   const [setup, setSetup] = useState<SessionSetup | null>(null);
   const [audio, setAudio] = useState<AudioContext | null>(null);
-  const [progress, setProgress] = useState<ProgressMap>(loadProgress());
+  const [progress, setProgress] = useState<ProgressMap>(() => loadProgress().data);
   const audioRef = useRef<AudioContext | null>(null);
 
-  const refresh = useCallback(() => setProgress(loadProgress()), []);
+  const refresh = useCallback(() => setProgress(loadProgress().data), []);
 
   // R18: Wird von `Home` im Klick-Handler von „Einheit starten" aufgerufen – der
   // einzige Ort, an dem ein AudioContext entstehen darf. Über mehrere Einheiten

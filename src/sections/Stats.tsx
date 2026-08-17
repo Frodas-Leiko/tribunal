@@ -1,12 +1,41 @@
 // ── Statistik: Die Akte des Tribunals ────────────────────────────────────────
 
 import { useState } from 'react';
-import { loadStats, resetAll } from '@/lib/store';
+import { loadProgress, loadStats, resetAll, SCHEMA_VERSION, type LoadStatus } from '@/lib/store';
 import { COLORS } from '@/components/Visuals';
 
+/** Namen der Datensätze, die beim Laden in diesem Zustand landeten. */
+function recordsWith(target: LoadStatus, progress: LoadStatus, stats: LoadStatus): string[] {
+  const out: string[] = [];
+  if (progress === target) out.push('Fortschritt');
+  if (stats === target) out.push('Statistik');
+  return out;
+}
+
+/**
+ * R25: Ein Schema-Bruch bleibt nicht stumm. Diese Zeile ist der Ort, an dem der
+ * Nutzer erfährt, dass Standardwerte gelten – und dass nichts gelöscht wurde.
+ */
+function schemaNote(progress: LoadStatus, stats: LoadStatus): string | null {
+  const broken = recordsWith('zurückgefallen', progress, stats);
+  if (broken.length > 0) {
+    return `${broken.join(' und ')}: Der gespeicherte Datensatz passt nicht zu Schema-Version ${SCHEMA_VERSION}. `
+      + 'Es gelten Standardwerte. Die Rohdaten im Browser-Speicher sind unverändert; '
+      + 'erst das nächste Speichern ersetzt sie.';
+  }
+  const migrated = recordsWith('migriert', progress, stats);
+  if (migrated.length > 0) {
+    return `${migrated.join(' und ')}: Datensatz einer älteren Fassung übernommen, jetzt Schema-Version ${SCHEMA_VERSION}.`;
+  }
+  return null;
+}
+
 export function Stats({ onReset }: { onReset: () => void }) {
-  const [stats, setStats] = useState(loadStats());
+  const [loaded, setLoaded] = useState(() => ({ progress: loadProgress(), stats: loadStats() }));
   const [confirm, setConfirm] = useState(false);
+
+  const stats = loaded.stats.data;
+  const note = schemaNote(loaded.progress.status, loaded.stats.status);
 
   const accuracy = stats.attempts > 0 ? Math.round((stats.hits / stats.attempts) * 100) : 0;
 
@@ -30,6 +59,7 @@ export function Stats({ onReset }: { onReset: () => void }) {
     <div className="stats">
       <h2>Statistik</h2>
       <p className="stats-note">Alle Daten bleiben lokal auf diesem Gerät (Browser-Speicher). Kein Konto, kein Server.</p>
+      {note && <p className="stats-warn">{note}</p>}
 
       <div className="stats-cards">
         <div className="stat-card">
@@ -77,7 +107,17 @@ export function Stats({ onReset }: { onReset: () => void }) {
         ) : (
           <span>
             Wirklich alles löschen?{' '}
-            <button className="danger-btn" onClick={() => { resetAll(); setStats(loadStats()); setConfirm(false); onReset(); }}>Ja, löschen</button>
+            <button
+              className="danger-btn"
+              onClick={() => {
+                resetAll();
+                setLoaded({ progress: loadProgress(), stats: loadStats() });
+                setConfirm(false);
+                onReset();
+              }}
+            >
+              Ja, löschen
+            </button>
             <button className="demo-btn" onClick={() => setConfirm(false)}>Abbrechen</button>
           </span>
         )}

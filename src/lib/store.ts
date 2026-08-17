@@ -1,4 +1,6 @@
 // ── Lokale Persistenz: Fortschritt & Statistik (bleibt auf diesem Gerät) ────
+// R24: Diese Datei ist die einzige Tür zum Browser-Speicher. Die Lint-Regel in
+// `eslint.config.js` hält sie zu – `localStorage` außerhalb ist ein Fehler.
 
 import { KEYS } from './music';
 
@@ -24,6 +26,9 @@ export interface StatsData {
   hits: number;
 }
 
+// Die Schlüsselnamen stammen aus der ersten Fassung und bleiben, damit vorhandener
+// Fortschritt erhalten bleibt. Die Schema-Version steht seit R25 *im* Datensatz,
+// nicht im Namen des Fachs.
 const P_KEY = 'tribunal.progress.v1';
 const S_KEY = 'tribunal.stats.v1';
 
@@ -32,33 +37,116 @@ export const TEMPO_STEP = 4;
 export const TARGET_TEMPO = 100;
 export const PASS_STREAK = 8;
 
-function load<T>(key: string, fallback: T): T {
+/** R25: Jeder gespeicherte Datensatz trägt diese Version. Fassung 1 trug keine. */
+export const SCHEMA_VERSION = 2;
+
+/** Was beim Laden geschah – der Nutzer erfährt es, wenn es nicht `ok` ist. */
+export type LoadStatus = 'ok' | 'migriert' | 'zurückgefallen';
+
+export interface Loaded<T> {
+  data: T;
+  status: LoadStatus;
+}
+
+function emptyStats(): StatsData {
+  return { errors: {}, timing: {}, attempts: 0, hits: 0 };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isKeyProgress(v: unknown): v is KeyProgress {
+  return isRecord(v)
+    && typeof v.tempoA === 'number' && typeof v.tempoB === 'number'
+    && typeof v.doneA === 'boolean' && typeof v.doneB === 'boolean';
+}
+
+function isProgressMap(v: unknown): v is ProgressMap {
+  return isRecord(v) && Object.values(v).every(isKeyProgress);
+}
+
+function isChordError(v: unknown): v is ChordError {
+  return isRecord(v)
+    && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+}
+
+function isStatsData(v: unknown): v is StatsData {
+  return isRecord(v)
+    && typeof v.attempts === 'number' && typeof v.hits === 'number'
+    && isRecord(v.errors) && Object.values(v.errors).every(isChordError)
+    && isRecord(v.timing)
+    && Object.values(v.timing).every((t) => Array.isArray(t) && t.every((n) => typeof n === 'number'));
+}
+
+/**
+ * R25: Rohtext → Datensatz, mit Migrationspfad und ohne stillen Verlust.
+ * Rein und ohne Speicherzugriff, damit der Pfad testbar bleibt.
+ *
+ * - kein Eintrag → Standardwerte, `ok` (nichts gespeichert ist kein Bruch)
+ * - Hülle mit aktueller Version und gültigem Inhalt → `ok`
+ * - nackter Datensatz ohne Hülle (Fassung 1) → übernommen, `migriert`
+ * - kaputtes JSON, fremde Version, kaputte Felder → Standardwerte,
+ *   `zurückgefallen`; der Rohtext bleibt liegen, hier schreibt niemand.
+ */
+function migrateRecord<T>(raw: string | null, fallback: T, valid: (v: unknown) => v is T): Loaded<T> {
+  if (raw === null) return { data: fallback, status: 'ok' };
+  let parsed: unknown;
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    parsed = JSON.parse(raw);
   } catch {
-    return fallback;
+    return { data: fallback, status: 'zurückgefallen' };
+  }
+  if (isRecord(parsed) && typeof parsed.version === 'number') {
+    return parsed.version === SCHEMA_VERSION && valid(parsed.data)
+      ? { data: parsed.data, status: 'ok' }
+      : { data: fallback, status: 'zurückgefallen' };
+  }
+  return valid(parsed)
+    ? { data: parsed, status: 'migriert' }
+    : { data: fallback, status: 'zurückgefallen' };
+}
+
+export function migrateProgress(raw: string | null): Loaded<ProgressMap> {
+  return migrateRecord(raw, {}, isProgressMap);
+}
+
+export function migrateStats(raw: string | null): Loaded<StatsData> {
+  return migrateRecord(raw, emptyStats(), isStatsData);
+}
+
+function readRaw(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    // Privater Modus oder gesperrter Speicher: wie „kein Eintrag".
+    return null;
   }
 }
 
 function save(key: string, data: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify({ version: SCHEMA_VERSION, data }));
   } catch {
     /* Speicher voll / privat */
   }
 }
 
-export function loadProgress(): ProgressMap {
-  return load<ProgressMap>(P_KEY, {});
+export function loadProgress(): Loaded<ProgressMap> {
+  return migrateProgress(readRaw(P_KEY));
 }
 
 export function getKeyProgress(map: ProgressMap, keyId: string): KeyProgress {
   return map[keyId] ?? { tempoA: START_TEMPO, tempoB: START_TEMPO, doneA: false, doneB: false };
 }
 
-/** Nach bestandener Einheit: Tempo hoch oder Modus als geschafft markieren. */
-export function passTempo(map: ProgressMap, keyId: string, mode: 'A' | 'B'): { map: ProgressMap; newTempo: number; justCompleted: boolean } {
+/**
+ * Nach bestandener Einheit: Tempo hoch oder Modus als geschafft markieren.
+ * R24: Die Funktion holt den Stand selbst und schreibt ihn selbst zurück – der
+ * Aufrufer kennt weder Schlüssel noch Speicher.
+ */
+export function passTempo(keyId: string, mode: 'A' | 'B'): { map: ProgressMap; newTempo: number; justCompleted: boolean } {
+  const map = loadProgress().data;
   const cur = getKeyProgress(map, keyId);
   const next: ProgressMap = { ...map };
   const upd = { ...cur };
@@ -109,8 +197,8 @@ export function recommendedNext(map: ProgressMap): Recommendation | null {
 
 // ── Statistik ────────────────────────────────────────────────────────────────
 
-export function loadStats(): StatsData {
-  return load<StatsData>(S_KEY, { errors: {}, timing: {}, attempts: 0, hits: 0 });
+export function loadStats(): Loaded<StatsData> {
+  return migrateStats(readRaw(S_KEY));
 }
 
 export function recordAttempt(
