@@ -8,6 +8,7 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 |---|---|---|
 | **P0** · Hänger und Anzeigebrüche | 3 | abgeschlossen (B-01 … B-06, B-28 Setup) |
 | **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
+| **P2** · Level spielbar, Fortschritt korrekt | 3 | geplant (B-14 … B-18) |
 
 ---
 
@@ -109,6 +110,50 @@ Kartenausschnitt zu kennen. Getrennt gebaut würde `Staff` dreimal umgeschrieben
   Buchstabieren auffällt.
 - `localStorage` in `engine.ts` (**B-17**), `/8` in `Session.tsx` (**B-18**),
   Stufen-Sperren (**B-14**), Timing-Fehler als Akkordfehler (**B-24**) – P2 bzw. P4.
+
+---
+
+# P2 · Level jederzeit spielbar, Fortschritt korrekt
+
+**Items:** B-14 … B-18 · **Beschluss:** Alles ist jederzeit spielbar (R11)
+
+| Paket | Datei | Items | Aufwand | Hauptdateien |
+|---|---|---|---|---|
+| **1** | `P2-1-kein-schloss.md` | B-14 · B-18 | klein | `src/sections/Home.tsx`, `src/lib/store.ts`, `src/sections/Session.tsx` |
+| **2** | `P2-2-eine-tuer-ein-level.md` | B-17 · B-15 | klein–mittel | `src/lib/store.ts`, `src/lib/engine.ts`, `eslint.config.js` |
+| **3** | `P2-3-fortschritt-fuer-folgen.md` | B-16 | mittel | `src/lib/store.ts`, `src/sections/Home.tsx`, `src/lib/engine.ts` |
+
+## Warum dieser Schnitt
+
+**P2 dreht sich um einen einzigen Datensatz: den Fortschritt.** Der Schnitt trennt deshalb
+nach Zugriffsart – erst nur lesen, dann die Schreibschicht, dann das Schema erweitern:
+
+**Paket 1 liest nur.** B-14 entfernt die Schlösser und ersetzt sie durch eine Empfehlung,
+B-18 zieht die Serienzahl aus `PASS_STREAK`. Beides ist Anzeige; keine Zeile schreibt in
+den Speicher. Damit liegt das Paket konfliktfrei vor dem Umbau der Speicherschicht.
+
+**Paket 2 baut die eine Tür.** B-17 holt den direkten `localStorage`-Zugriff aus
+`engine.ts` heraus, gibt jedem Datensatz eine `version` samt Migrationspfad und sichert
+die Regel per Lint ab. B-15 korrigiert direkt danach das eingefrorene Level-Tempo – in
+derselben Funktion, die B-17 gerade freigeräumt hat.
+
+*Reihenfolge gegenüber dem Backlog getauscht* (dort B-15 → B-17): B-15 schreibt genau die
+Zeilen um, die B-17 verschiebt. Andersherum entstünde ein direkter Speicherzugriff, den
+der nächste Commit sofort wieder entfernt.
+
+**Paket 3 erweitert das Schema.** B-16 gibt Akkordfolgen und Modus C einen eigenen Stand.
+Das ändert die Form des Datensatzes und ist ohne den Migrationspfad aus Paket 2 nicht
+abnahmefähig (R25) – deshalb zuletzt.
+
+## Nicht in P2
+
+- **B-30 ❓ (IndexedDB vs. `localStorage`)** – Paket 2 macht die Entscheidung billig: Danach
+  kennt genau eine Datei den Speicher. Empfehlung bleibt (b), `localStorage` behalten und
+  Konzept §6 nach Regelwerk §7 nachziehen.
+- **B-19/B-20/B-22** (P3) – die 32 Folgen und ihre Auswahl-UI. Paket 3 arbeitet mit den
+  heutigen sechs; der Schlüssel `(Tonart, Folge)` trägt die späteren 32 unverändert.
+- **B-24/B-25** (P4) – das Statistik-Schema ändert sich dort erneut. In P2 wird nur die
+  Version eingeführt, nicht deren künftiger Inhalt.
 
 ---
 
