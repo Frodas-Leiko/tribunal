@@ -8,7 +8,7 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 |---|---|---|
 | **P0** · Hänger und Anzeigebrüche | 3 | abgeschlossen (B-01 … B-06, B-28 Setup) |
 | **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
-| **P2** · Level spielbar, Fortschritt korrekt | 3 | in Arbeit – Paket 1 abgeschlossen (B-14 · B-18) |
+| **P2** · Level spielbar, Fortschritt korrekt | 3 | in Arbeit – Pakete 1 und 2 abgeschlossen (B-14 · B-18 · B-17 · B-15) |
 
 ---
 
