@@ -220,3 +220,85 @@ export const MODE_LABELS: Record<DictateMode, string> = {
 // ── Finger-Mapping Grundstellung: Index im Akkord → Finger ──────────────────
 export const FINGER_NAMES = ['Daumen (Finger 1)', 'Mittelfinger (Finger 3)', 'Kleiner Finger (Finger 5)'];
 export const INTERVAL_NAMES = ['Grundton', 'Terz', 'Quinte'];
+
+// ── Tribunal: Fehlgriff → genau eine ausführbare Korrektur ──────────────────
+
+export interface TribunalVerdict {
+  big: string;                  // R2 groß: ausführbar ohne Theoriekenntnis
+  small: string;                // R2 klein: Fachbegriff
+  direction: 1 | -1 | 0;        // 1 = zu hoch gegriffen, -1 = zu tief, 0 = ohne Richtung
+}
+
+/**
+ * Bewertet einen Fehlgriff auf Tonhöhenklassen-Ebene und nennt nach R3 genau
+ * **einen** Hinweis: den gröbsten Fehler. Rangfolge nach R23:
+ *
+ * 1. Vektor – ein überzähliger Ton lässt sich einem fehlenden Zielton zuordnen
+ * 2. Zielton fehlt, ohne dass ein falscher Ton an seiner Stelle liegt
+ * 3. alle Zieltöne liegen, ein Ton zu viel
+ * 4. kein einziger Zielton getroffen → Notnagel „Akkord nicht gefunden"
+ *
+ * Rang 2 und 3 setzen jeweils voraus, dass die andere Menge leer ist – sonst
+ * hätte Rang 1 bereits gegriffen.
+ *
+ * Die Funktion ist total: sie gibt immer ein Urteil zurück. Der Fall „alle Töne
+ * richtig, nur die Oktavlage nicht" (Übung 2, R13) gehört **nicht** hierher und
+ * muss vom Aufrufer vorher abgefangen werden – Rang 4 wäre dort falsch.
+ */
+export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): TribunalVerdict {
+  const missing = chord.pcs
+    .map((pc, idx) => ({ pc, idx }))
+    .filter((t) => !playedPcs.has(t.pc));
+  const extra = [...playedPcs].filter((pc) => !chord.pcs.includes(pc));
+
+  // Rang 1 – der kleinste Abstand zwischen einem fehlenden Zielton und einem
+  // überzähligen Ton ist der Finger, der am ehesten nur danebenlag.
+  let best: { idx: number; diff: number } | null = null;
+  for (const target of missing) {
+    for (const played of extra) {
+      let diff = played - target.pc;
+      while (diff > 6) diff -= 12;
+      while (diff < -6) diff += 12;
+      if (!best || Math.abs(diff) < Math.abs(best.diff)) best = { idx: target.idx, diff };
+    }
+  }
+  if (best) {
+    const n = Math.abs(best.diff);
+    const tasterWord = n === 1 ? 'eine Taste' : `${n} Tasten`;
+    return {
+      big: `${FINGER_NAMES[best.idx]}: ${tasterWord} ${best.diff > 0 ? 'tiefer' : 'höher'}`,
+      small: `${INTERVAL_NAMES[best.idx]} ${best.diff > 0 ? '+' : '−'}${n} Halbton${n > 1 ? 'e' : ''}`,
+      direction: best.diff > 0 ? 1 : -1,
+    };
+  }
+
+  // Rang 2 – ein Ton fehlt, ohne Ersatz. Fehlen mehrere, wiegt der tiefere
+  // Finger schwerer: der Grundton trägt die Mulde, dann Terz, dann Quinte.
+  if (missing.length > 0 && missing.length < chord.pcs.length) {
+    const { idx } = missing[0];
+    return {
+      big: `${FINGER_NAMES[idx]} fehlt`,
+      small: `${INTERVAL_NAMES[idx]} fehlt`,
+      direction: 0,
+    };
+  }
+
+  // Rang 3 – die Mulde stimmt, ein Finger liegt zusätzlich auf.
+  if (extra.length > 0) {
+    const pc = extra[0];
+    return {
+      big: `Ein Ton zu viel: ${pcName(pc)} loslassen`,
+      // Leitereigene Fremdtöne gehören zur Tonart, nur nicht zu diesem Akkord –
+      // „nicht in <Tonart>" wäre für sie falsch (R4: messen statt meinen).
+      small: key.scale.includes(pc) ? `nicht in ${chord.name}` : `nicht in ${key.label}`,
+      direction: 0,
+    };
+  }
+
+  // Rang 4 – Notnagel (R23): kein einziger Zielton getroffen.
+  return {
+    big: 'Akkord nicht gefunden',
+    small: `Ziel: ${chord.name} – Mulde komplett neu formen.`,
+    direction: 0,
+  };
+}

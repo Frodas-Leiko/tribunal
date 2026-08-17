@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Metronome, Scheduler, requestWakeLock } from './audio';
 import type { NoteEvent } from './midi';
 import {
-  diatonicChords, getKey, FINGER_NAMES, INTERVAL_NAMES,
+  diatonicChords, getKey, tribunal,
   type ChordDef, type DictateMode, PROGRESSIONS,
 } from './music';
 import { spellTriad, zoneOf, type SpelledNote, type Zone } from './staff';
@@ -125,31 +125,6 @@ export function useSession(config: SessionConfig, onPass: () => void) {
     return chords[Math.floor(Math.random() * chords.length)];
   }, [config.source, config.mode]);
 
-  // ── Tribunal: Fehler → Bewegungsvektor ────────────────────────────────────
-  const tribunal = useCallback((chord: ChordDef, playedPcs: Set<number>): { big: string; small: string; direction: 1 | -1 } | null => {
-    let best: { idx: number; diff: number } | null = null;
-    chord.pcs.forEach((pc, idx) => {
-      if (playedPcs.has(pc)) return;
-      playedPcs.forEach((played) => {
-        if (chord.pcs.includes(played)) return;
-        let diff = played - pc;
-        while (diff > 6) diff -= 12;
-        while (diff < -6) diff += 12;
-        if (diff !== 0 && (!best || Math.abs(diff) < Math.abs(best.diff))) best = { idx, diff };
-      });
-    });
-    if (!best) return null;
-    const b = best as { idx: number; diff: number };
-    const n = Math.abs(b.diff);
-    const tasterWord = n === 1 ? 'eine Taste' : `${n} Tasten`;
-    const dir = b.diff > 0 ? 'tiefer' : 'höher';
-    return {
-      big: `${FINGER_NAMES[b.idx]}: ${tasterWord} ${dir}`,
-      small: `${INTERVAL_NAMES[b.idx]} ${b.diff > 0 ? '+' : '−'}${n} Halbton${n > 1 ? 'e' : ''}`,
-      direction: b.diff > 0 ? 1 : -1,
-    };
-  }, []);
-
   // ── Serien-Logik (Bestehen, Rampe, Banner) ────────────────────────────────
   const registerSuccess = useCallback((): string | null => {
     streakRef.current += 1;
@@ -242,13 +217,9 @@ export function useSession(config: SessionConfig, onPass: () => void) {
         feedback = { kind: 'wrong', big: registerMsg, small: 'Richtiger Block, falsche Zone.', offsetMs: offset };
         pitchOk = false;
       } else {
-        const vec = tribunal(cur.chord, playedPcs);
-        if (vec) {
-          direction = vec.direction;
-          feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: offset };
-        } else {
-          feedback = { kind: 'wrong', big: 'Akkord nicht gefunden', small: `Ziel: ${cur.chord.name} – Mulde komplett neu formen.`, offsetMs: offset };
-        }
+        const vec = tribunal(cur.chord, playedPcs, key);
+        direction = vec.direction;
+        feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: offset };
       }
     }
 
@@ -273,7 +244,7 @@ export function useSession(config: SessionConfig, onPass: () => void) {
     // Timing-Fehler (zu früh/spät, Töne korrekt) werden nur angezeigt – der Takt läuft weiter.
     const halts = feedback.kind === 'wrong' || feedback.kind === 'miss';
     if (halts && config.errorMode === 'stop') pauseSession();
-  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, tribunal, registerSuccess, pauseSession]);
+  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, registerSuccess, pauseSession]);
 
   // ── Beat-Scheduling ───────────────────────────────────────────────────────
   const onEvent = useCallback((ev: { time: number; index: number }) => {
@@ -370,11 +341,13 @@ export function useSession(config: SessionConfig, onPass: () => void) {
 
     // Register-Prüfung (Übung 2)
     let registerOk = true;
+    let registerDelta = 0;
     if (allHit && noExtra && config.exercise === 2) {
       const spelled = spellTriad(cur.chord, key, cur.shift);
       const avgPlayed = notes.reduce((a, n) => a + n.midi, 0) / notes.length;
       const avgTarget = spelled.reduce((a, s) => a + s.midi, 0) / spelled.length;
-      registerOk = Math.abs(avgPlayed - avgTarget) < 6;
+      registerDelta = avgPlayed - avgTarget;
+      registerOk = Math.abs(registerDelta) < 6;
     }
 
     if (allHit && noExtra && registerOk) {
@@ -402,17 +375,30 @@ export function useSession(config: SessionConfig, onPass: () => void) {
       }));
       metro.signal(true);
     } else {
-      // Weiter pausiert: Tribunal-Vektor als Korrekturhilfe
-      const vec = tribunal(cur.chord, playedPcs);
-      const feedback: Feedback = vec
-        ? { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: null }
-        : { kind: 'wrong', big: 'Akkord nicht gefunden', small: `Ziel: ${cur.chord.name} – Mulde komplett neu formen.`, offsetMs: null };
-      statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, false, vec?.direction ?? 0, null);
+      // Weiter pausiert: genau ein Hinweis als Korrekturhilfe (R2, R3)
+      let feedback: Feedback;
+      let direction: 1 | -1 | 0;
+      if (allHit && noExtra) {
+        // Alle Töne liegen, nur die Zone nicht (Übung 2). Das Tribunal urteilt über
+        // Tonhöhenklassen; „Akkord nicht gefunden" wäre hier nach R23 falsch.
+        direction = registerDelta > 0 ? 1 : -1;
+        feedback = {
+          kind: 'wrong',
+          big: registerDelta > 0 ? 'Hand: eine Oktave tiefer' : 'Hand: eine Oktave höher',
+          small: 'Richtiger Block, falsche Zone.',
+          offsetMs: null,
+        };
+      } else {
+        const vec = tribunal(cur.chord, playedPcs, key);
+        direction = vec.direction;
+        feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: null };
+      }
+      statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, false, direction, null);
       setHud((h) => h && ({ ...h, feedback, streak: 0 }));
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, onEvent, registerSuccess, tribunal]);
+  }, [config.exercise, config.keyId, key, onEvent, registerSuccess]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
