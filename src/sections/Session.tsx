@@ -6,6 +6,7 @@ import type { SessionSetup } from './Home';
 import { useNoteInput, DEMO_HINT } from '@/lib/midi';
 import { getKey, PROGRESSIONS } from '@/lib/music';
 import { unitFrame } from '@/lib/staff';
+import { PASS_STREAK } from '@/lib/store';
 import { Staff, Topography, SubdivisionBar, Tribunal, COLORS } from '@/components/Visuals';
 
 export function Session({ setup, audio, onExit, onProgressChanged }: {
@@ -68,7 +69,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
           <span>{setup.exercise === 1 ? 'Blind-Griff' : 'Systemsprung'}</span>
           <span>{progName ?? `Modus ${setup.mode}`}</span>
           <span style={{ color: COLORS.amber }}>{hud?.tempo ?? setup.initialTempo} bpm</span>
-          <span>Serie: <strong style={{ color: COLORS.green }}>{hud?.streak ?? 0}</strong>/8</span>
+          <span>Serie: <strong style={{ color: COLORS.green }}>{hud?.streak ?? 0}</strong>/{PASS_STREAK}</span>
           <span>±{setup.tolerance} ms</span>
         </div>
         <div className="session-input">

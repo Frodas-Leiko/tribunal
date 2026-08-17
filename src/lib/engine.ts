@@ -215,7 +215,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
         banner = `Serie geschafft – Fortschritt zählt auf Level ${config.levelTempo} bpm (freies Tempo: ${tempoRef.current}).`;
       }
     } else {
-      banner = 'Serie geschafft – 8 in Folge.';
+      banner = `Serie geschafft – ${PASS_STREAK} in Folge.`;
     }
     onPassRef.current();
     return banner;

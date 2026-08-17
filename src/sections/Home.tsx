@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { KEYS, PROGRESSIONS, MODE_LABELS, type KeyDef, type DictateMode } from '@/lib/music';
 import {
-  getKeyProgress, isStageComplete, recommendedNext, TARGET_TEMPO, type ProgressMap,
+  getKeyProgress, isStageComplete, recommendedNext, PASS_STREAK, TARGET_TEMPO, type ProgressMap,
 } from '@/lib/store';
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
 import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
@@ -75,8 +75,8 @@ export function Home({ progress, onStart, openAudio }: {
         <h2>Stufenplan</h2>
         <p>
           Fünf Stufen entlang des Quintenzirkels – jede bringt genau ein neues Vorzeichen.
-          Eine Stufe gilt als geschafft, wenn beide Tonarten in <em>Modus A</em> und <em>Modus B</em>
-          bei {TARGET_TEMPO} bpm je 8 fehlerfreie Wiederholungen in Folge stehen.
+          Eine Stufe gilt als geschafft, wenn beide Tonarten in <em>Modus A</em> und <em>Modus B</em>{' '}
+          bei {TARGET_TEMPO} bpm je {PASS_STREAK} fehlerfreie Wiederholungen in Folge stehen.
           Spielbar ist jede Tonart jederzeit; der Plan empfiehlt die nächste Einheit, er sperrt nichts.
         </p>
       </section>
