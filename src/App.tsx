@@ -1,0 +1,47 @@
+import { useCallback, useState } from 'react';
+import { Home, type SessionSetup } from './sections/Home';
+import { Session } from './sections/Session';
+import { Stats } from './sections/Stats';
+import { loadProgress, type ProgressMap } from './lib/store';
+import '@fontsource/oswald/500.css';
+import '@fontsource/oswald/600.css';
+
+type View = 'home' | 'session' | 'stats';
+
+export default function App() {
+  const [view, setView] = useState<View>('home');
+  const [setup, setSetup] = useState<SessionSetup | null>(null);
+  const [progress, setProgress] = useState<ProgressMap>(loadProgress());
+
+  const refresh = useCallback(() => setProgress(loadProgress()), []);
+
+  const startSession = (s: SessionSetup) => {
+    setSetup(s);
+    setView('session');
+  };
+
+  return (
+    <div className="app">
+      <header className="app-head">
+        <div className="app-title" onClick={() => setView('home')}>
+          <h1>TRIBUNAL</h1>
+          <span>propriozeptiver Klaviertrainer</span>
+        </div>
+        <nav>
+          <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>Stufenplan</button>
+          <button className={view === 'stats' ? 'active' : ''} onClick={() => setView('stats')}>Statistik</button>
+        </nav>
+      </header>
+
+      {view === 'home' && <Home progress={progress} onStart={startSession} />}
+      {view === 'session' && setup && (
+        <Session setup={setup} onExit={() => { refresh(); setView('home'); }} onProgressChanged={refresh} />
+      )}
+      {view === 'stats' && <Stats onReset={refresh} />}
+
+      <footer className="app-foot">
+        Fortschritt & Statistik bleiben in diesem Browser auf diesem Gerät · Querformat empfohlen · USB-MIDI erforderlich (oder Demo-Modus)
+      </footer>
+    </div>
+  );
+}
