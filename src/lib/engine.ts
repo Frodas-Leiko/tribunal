@@ -2,6 +2,10 @@
 // Start erst mit dem ersten korrekten Anschlag; optionaler Stopp bei Fehlern.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ATTEMPT_GAP_MS, attemptCapMs, attemptForBeat, evalWindowMs, groupAttempts,
+  type Attempt,
+} from './attempt';
 import { Metronome, Scheduler, requestWakeLock } from './audio';
 import type { NoteEvent } from './midi';
 import {
@@ -63,10 +67,6 @@ export interface ClockRef {
   beatStartPerf: number;
   beatDur: number;
 }
-
-const EVAL_DELAY = 170;
-const WINDOW = 170;
-const RESUME_WINDOW = 260; // ms Fenster um den Wiedereinstiegs-Anschlag
 
 // `audio` entsteht in der Nutzergeste von „Einheit starten" (R18) und wird von
 // dort durchgereicht – die Engine öffnet selbst nie einen Kontext.
@@ -134,6 +134,13 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const key = getKey(config.keyId);
   const subs = config.exercise === 1 ? 4 : 3;
 
+  // Übung 1 zählt 16tel auf einen Viertel-Beat, Übung 2 zwei schwere Schläge im 6/8.
+  const segDurSec = useCallback(
+    () => (config.exercise === 1 ? (60 / tempoRef.current) / 4 : (60 / tempoRef.current) / 2),
+    [config.exercise],
+  );
+  const beatDurMs = useCallback(() => segDurSec() * subs * 1000, [segDurSec, subs]);
+
   // ── Sequenz-Generierung ──────────────────────────────────────────────────
   const nextChord = useCallback((): ChordDef => {
     const chords = chordsRef.current;
@@ -195,11 +202,36 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   }, [getMachine]);
 
   // ── Auswertung eines Beats (laufende Übung) ───────────────────────────────
+  // Ein Urteil pro Beat: bewertet wird der Versuch, dessen erster Ton dem Beat am
+  // nächsten liegt (R20/R21). Rollt der Akkord noch, wartet die Bewertung, bis das
+  // Sammelfenster geschlossen ist – ein falscher Ton beendet ihn nicht (AK 2).
   const evaluate = useCallback((beatPerf: number, beatIndex: number) => {
+    const judge = () => {
     const cur = currentRef.current;
     if (!cur || getMachine().state !== 'RUNNING') return;
-    const notes = notesRef.current.filter((n) => n.time >= beatPerf - WINDOW && n.time <= beatPerf + WINDOW);
-    notesRef.current = notesRef.current.filter((n) => n.time > beatPerf + WINDOW);
+
+    const beatDur = beatDurMs();
+    const cap = attemptCapMs(beatDur);
+    const win = evalWindowMs(config.tolerance, beatDur);
+    // Vorfilter weit genug, dass die Gruppierung am Rand dieselbe bleibt.
+    const inRange = notesRef.current.filter((n) => n.time >= beatPerf - win - cap && n.time <= beatPerf + win + cap);
+    const chosen = attemptForBeat(groupAttempts(inRange, cap), beatPerf, win);
+
+    if (chosen) {
+      const sinceLast = performance.now() - chosen.end;
+      if (sinceLast < ATTEMPT_GAP_MS && chosen.end - chosen.start < cap) {
+        // Der Akkord rollt noch – erst nach Fensterende bewerten (R20).
+        const t = window.setTimeout(() => {
+          evalTimersRef.current = evalTimersRef.current.filter((id) => id !== t);
+          judge();
+        }, ATTEMPT_GAP_MS - sinceLast);
+        evalTimersRef.current.push(t);
+        return;
+      }
+    }
+    const notes = chosen?.notes ?? [];
+    const cut = Math.max(beatPerf + win, chosen?.end ?? Number.NEGATIVE_INFINITY);
+    notesRef.current = notesRef.current.filter((n) => n.time > cut);
 
     let feedback: Feedback;
     let pitchOk = false;
@@ -213,8 +245,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       feedback = { kind: 'miss', big: 'Kein Anschlag', small: 'Die Hand war nicht da, als der Klang stehen musste.', offsetMs: null };
     } else {
       const playedPcs = new Set(notes.map((n) => n.midi % 12));
-      const earliest = Math.min(...notes.map((n) => n.time));
-      offset = earliest - beatPerf;
+      offset = notes[0].time - beatPerf;   // der erste Ton des Versuchs ist die Landung
       offsetsRef.current = [...offsetsRef.current, offset].slice(-12);
 
       const allHit = [...targetPcs].every((pc) => playedPcs.has(pc));
@@ -277,7 +308,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     // Timing-Fehler (zu früh/spät, Töne korrekt) werden nur angezeigt – der Takt läuft weiter.
     const halts = feedback.kind === 'wrong' || feedback.kind === 'miss';
     if (halts && config.errorMode === 'stop') pauseSession();
-  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, getMachine, registerSuccess, pauseSession]);
+    };
+    judge();
+  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, beatDurMs, getMachine, registerSuccess, pauseSession]);
 
   // ── Beat-Scheduling ───────────────────────────────────────────────────────
   const onEvent = useCallback((ev: { time: number; index: number }) => {
@@ -287,7 +320,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     const beatIndex = beatBaseRef.current + Math.floor(ev.index / subs);
     metro.click(ev.time, isBeat ? 'beat' : 'sub', ev.index === 0 && beatBaseRef.current === 0);
 
-    const segDur = config.exercise === 1 ? (60 / tempoRef.current) / 4 : (60 / tempoRef.current) / 2;
+    const segDur = segDurSec();
     const segStartPerf = (ev.time * 1000 + perfOffsetRef.current) / 1000;
     clockRef.current = {
       segStartPerf,
@@ -350,7 +383,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       return;
     }
     const beatPerf = ev.time * 1000 + perfOffsetRef.current;
-    const delay = Math.max(0, beatPerf + EVAL_DELAY - performance.now());
+    // R21: Der Nachlauf ist das abgeleitete Fenster, keine Konstante. Rollt zu
+    // diesem Zeitpunkt noch ein Akkord, verlängert `evaluate` selbst.
+    const delay = Math.max(0, beatPerf + evalWindowMs(config.tolerance, beatDurMs()) - performance.now());
     // AK 3: Der Timer trägt sich nach dem Feuern selbst aus – die Liste enthält
     // nur noch ausstehende Auswertungen.
     const t = window.setTimeout(() => {
@@ -358,23 +393,21 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       evaluate(beatPerf, beatIndex);
     }, delay);
     evalTimersRef.current.push(t);
-  }, [config.exercise, subs, nextChord, key, getMachine, evaluate]);
+  }, [config.exercise, config.tolerance, subs, nextChord, key, segDurSec, beatDurMs, getMachine, evaluate]);
 
   // ── Wiedereinstieg / erster Anschlag ──────────────────────────────────────
   // Läuft in ARMED (vor dem ersten Anschlag) und PAUSED (nach einem Fehler): prüft,
   // ob der aktuelle Ziel-Akkord korrekt gespielt wurde. Wenn ja: Uhr wird auf
   // diesen Anschlag kalibriert, weiter geht's.
-  const tryResume = useCallback((t0: number) => {
+  const tryResume = useCallback((attempt: Attempt) => {
     const cur = currentRef.current;
     const metro = metroRef.current;
     if (!cur || !metro) return;
     const machine = getMachine();
     if (machine.state !== 'ARMED' && machine.state !== 'PAUSED') return;
 
-    const notes = notesRef.current.filter((n) => n.time >= t0 - 30 && n.time <= t0 + RESUME_WINDOW);
-    if (notes.length === 0) return;
-    notesRef.current = notesRef.current.filter((n) => n.time > t0 + RESUME_WINDOW);
-
+    const notes = attempt.notes;
+    const t0 = attempt.start;
     const playedPcs = new Set(notes.map((n) => n.midi % 12));
     const targetPcs = new Set(cur.chord.pcs);
     const allHit = [...targetPcs].every((pc) => playedPcs.has(pc));
@@ -405,11 +438,12 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       // ersten Event). Der neue Scheduler entsteht erst danach.
       machine.to('RUNNING');
       skipEvalBeatRef.current = currentBeatRef.current; // dieser Beat ist durch den Anschlag bereits bewertet
-      const sched = new Scheduler(() => ctx, () => config.exercise === 1 ? (60 / tempoRef.current) / 4 : (60 / tempoRef.current) / 2, onEvent);
+      const sched = new Scheduler(() => ctx, segDurSec, onEvent);
       schedRef.current = sched;
-      // R19: `noteAudio` liegt mindestens RESUME_WINDOW zurück. start() schiebt den
-      // Startzeitpunkt in ganzen Schritten vor und meldet die übersprungenen Schritte;
-      // die Beat-Nummerierung folgt um die darin enthaltenen ganzen Beats.
+      // R19: `noteAudio` liegt beim Aufruf schon zurück – mindestens um das
+      // Sammelfenster. start() schiebt den Startzeitpunkt in ganzen Schritten vor
+      // und meldet die übersprungenen Schritte; die Beat-Nummerierung folgt um die
+      // darin enthaltenen ganzen Beats.
       const skipped = sched.start(noteAudio);
       beatBaseRef.current = currentBeatRef.current + Math.floor(skipped / subs);
 
@@ -445,7 +479,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, subs, getMachine, onEvent, registerSuccess]);
+  }, [config.exercise, config.keyId, key, subs, segDurSec, getMachine, onEvent, registerSuccess]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
@@ -518,21 +552,37 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
   useEffect(() => stop, [stop]);
 
+  // ── Sammelfenster bei stehender Uhr (ARMED/PAUSED) ────────────────────────
+  // Der Versuch endet, wenn ATTEMPT_GAP_MS lang kein Ton folgt – gedeckelt nach R20.
+  // Erst dann wird bewertet, damit ein gerollter Akkord oder ein schneller
+  // Zweitversuch nicht in einen falschen Versuch gepresst wird.
+  const closeAttempt = useCallback(() => {
+    const machine = getMachine();
+    if (machine.state !== 'ARMED' && machine.state !== 'PAUSED') return;
+    const [first] = groupAttempts(notesRef.current, attemptCapMs(beatDurMs()));
+    if (!first) return;
+    notesRef.current = notesRef.current.filter((n) => n.time > first.end); // Versuch verbraucht
+    tryResume(first);
+  }, [getMachine, beatDurMs, tryResume]);
+
   const handleNote = useCallback((ev: NoteEvent) => {
     // In IDLE und ENDED nimmt die Session keine Eingabe an (R17-Tabelle).
     const machine = getMachine();
     if (machine.state === 'IDLE' || machine.state === 'ENDED') return;
     notesRef.current.push(ev);
     if (notesRef.current.length > 64) notesRef.current = notesRef.current.slice(-64);
-    // Steht die Uhr (ARMED oder PAUSED)? → Wiedereinstiegs-Versuch einleiten
-    if (machine.state !== 'RUNNING' && resumeTimerRef.current === null) {
-      const t0 = ev.time;
-      resumeTimerRef.current = window.setTimeout(() => {
-        resumeTimerRef.current = null;
-        tryResume(t0);
-      }, RESUME_WINDOW);
-    }
-  }, [getMachine, tryResume]);
+    if (machine.state === 'RUNNING') return; // im Takt bewertet der Beat, nicht die Stille
+
+    // Fenster nachziehen: jeder weitere Ton verlängert es um die Stille-Grenze,
+    // die Obergrenze schließt es in jedem Fall.
+    if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
+    const openSince = ev.time - (notesRef.current[0]?.time ?? ev.time);
+    const wait = Math.max(0, Math.min(ATTEMPT_GAP_MS, attemptCapMs(beatDurMs()) - openSince));
+    resumeTimerRef.current = window.setTimeout(() => {
+      resumeTimerRef.current = null;
+      closeAttempt();
+    }, wait);
+  }, [getMachine, beatDurMs, closeAttempt]);
 
   const clearBanner = useCallback(() => setHud((h) => h && ({ ...h, banner: null })), []);
 
