@@ -2,7 +2,8 @@
 
 import type { ReactNode } from 'react';
 import { COLORS } from './Visuals';
-import { pcName, type KeyDef, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
+import { midiName, pcName, type KeyDef, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
+import { anchorLabel } from '@/lib/staff';
 
 export function BriefOverlay({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -27,10 +28,13 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-export function KeyBrief({ k }: { k: KeyDef }) {
+export function KeyBrief({ k, anchor }: { k: KeyDef; anchor: number }) {
   return (
     <>
       <Row k="Tonart" v={`${k.label} · Vorzeichen: ${k.accidentals}`} />
+      {/* R12.5: Die Lage gehört zur Einheit und steht im Steckbrief – zusammen mit
+          dem Ton, den die Hand tatsächlich als Tonika greift. */}
+      <Row k="Lage" v={`${anchorLabel(anchor)} · Tonika ${midiName(anchor + k.tonic)} · alle Stufen aufwärts von dort`} />
       <Row k="Tonleiter" v={[...k.scale, k.tonic].map(pcName).join(' – ')} />
       <Row k="Fingersatz Tonleiter" v={k.fingeringScale} />
       <Row k="Fingersatz Dreiklänge" v="Rechte Hand: 1–3–5 (Daumen–Mittelfinger–kleiner Finger), Grundstellung. Die Mulde wird als Ganzes geformt – nie Finger für Finger suchen." />

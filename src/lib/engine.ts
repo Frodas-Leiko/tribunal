@@ -30,6 +30,7 @@ export interface SessionConfig {
   tolerance: number;   // ms, z.B. 50
   errorMode: ErrorMode;
   levelTempo: number;  // aktuelles Fortschritts-Level (für Rampen-Logik)
+  anchor: number;      // Lage: MIDI des C, ab dem die Tonika gebaut wird (R12.2)
 }
 
 export interface Feedback {
@@ -272,7 +273,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     let direction: 1 | -1 | 0 = 0;
     let offset: number | null = null;
 
-    const spelled = spellTriad(cur.chord, key, cur.shift);
+    const spelled = spellTriad(cur.chord, key, cur.shift, config.anchor);
     const targetPcs = new Set(cur.chord.pcs);
 
     if (notes.length === 0) {
@@ -345,7 +346,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     if (halts && config.errorMode === 'stop') pauseSession();
     };
     judge();
-  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, beatDurMs, getMachine, registerSuccess, pauseSession, armBannerTimeout]);
+  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, config.anchor, key, beatDurMs, getMachine, registerSuccess, pauseSession, armBannerTimeout]);
 
   // ── Beat-Scheduling ───────────────────────────────────────────────────────
   const onEvent = useCallback((ev: { time: number; index: number }) => {
@@ -389,7 +390,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     currentBeatRef.current = beatIndex;
 
     const cur = currentRef.current;
-    const spelled = spellTriad(cur.chord, key, shift);
+    const spelled = spellTriad(cur.chord, key, shift, config.anchor);
     const zone = zoneOf(spelled[1].diatonic);
     const zoneGlow: Zone | null = config.exercise === 2 ? (parity === 0 ? targetZone : 'zentrum') : null;
 
@@ -428,7 +429,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       evaluate(beatPerf, beatIndex);
     }, delay);
     evalTimersRef.current.push(t);
-  }, [config.exercise, config.tolerance, subs, nextChord, key, segDurSec, beatDurMs, getMachine, evaluate]);
+  }, [config.exercise, config.tolerance, config.anchor, subs, nextChord, key, segDurSec, beatDurMs, getMachine, evaluate]);
 
   // ── Wiedereinstieg / erster Anschlag ──────────────────────────────────────
   // Läuft in ARMED (vor dem ersten Anschlag) und PAUSED (nach einem Fehler): prüft,
@@ -452,7 +453,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     let registerOk = true;
     let registerDelta = 0;
     if (allHit && noExtra && config.exercise === 2) {
-      const spelled = spellTriad(cur.chord, key, cur.shift);
+      const spelled = spellTriad(cur.chord, key, cur.shift, config.anchor);
       const avgPlayed = notes.reduce((a, n) => a + n.midi, 0) / notes.length;
       const avgTarget = spelled.reduce((a, s) => a + s.midi, 0) / spelled.length;
       registerDelta = avgPlayed - avgTarget;
@@ -515,7 +516,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, subs, segDurSec, getMachine, onEvent, registerSuccess, armBannerTimeout]);
+  }, [config.exercise, config.keyId, config.anchor, key, subs, segDurSec, getMachine, onEvent, registerSuccess, armBannerTimeout]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
@@ -553,7 +554,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     currentBeatRef.current = 0;
     machine.to('ARMED');
 
-    const spelled = spellTriad(first, key, 0);
+    const spelled = spellTriad(first, key, 0, config.anchor);
     setHud({
       chordName: first.name,
       degree: first.degree,

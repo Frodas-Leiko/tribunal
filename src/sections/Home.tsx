@@ -6,6 +6,7 @@ import {
   getKeyProgress, isStageUnlocked, isStageComplete, TARGET_TEMPO, type ProgressMap,
 } from '@/lib/store';
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
+import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
 import { COLORS } from '@/components/Visuals';
 import { BriefOverlay, KeyBrief, ProgressionBrief, TimingBrief } from '@/components/Steckbrief';
 
@@ -27,6 +28,7 @@ export function Home({ progress, onStart, openAudio }: {
   const [mode, setMode] = useState<DictateMode>('A');
   const [progId, setProgId] = useState(PROGRESSIONS[0].id);
   const [tolerance, setTolerance] = useState(50);
+  const [anchor, setAnchor] = useState<number>(ANCHOR_DEFAULT);
   const [errorMode, setErrorMode] = useState<ErrorMode>('stop');
   const [tempoOverride, setTempoOverride] = useState<number | null>(null);
 
@@ -59,7 +61,7 @@ export function Home({ progress, onStart, openAudio }: {
     const audio = openAudio();
     onStart({
       exercise, keyId: selected.id, source, mode, progressionId: progId,
-      tolerance, errorMode, levelTempo, initialTempo: effectiveTempo,
+      tolerance, errorMode, levelTempo, anchor, initialTempo: effectiveTempo,
     }, audio);
   };
 
@@ -189,6 +191,19 @@ export function Home({ progress, onStart, openAudio }: {
             </div>
           </div>
 
+          {/* R12.2: Die Lage ist die Anker-Oktave der Einheit – Ausgangspunkt ist die
+              Tonika in dieser Oktave, alle Stufen werden von dort aufwärts gebaut. */}
+          <div className="setup-row">
+            <span className="setup-label">Lage</span>
+            <div className="setup-opts">
+              {ANCHORS.map((a) => (
+                <button key={a} className={anchor === a ? 'active' : ''} onClick={() => setAnchor(a)}>
+                  {anchorLabel(a)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="setup-row">
             <span className="setup-label">Toleranz</span>
             <div className="setup-opts">
@@ -218,7 +233,7 @@ export function Home({ progress, onStart, openAudio }: {
 
       {brief?.kind === 'key' && brief.key && (
         <BriefOverlay title={`Steckbrief: ${brief.key.label}`} onClose={() => setBrief(null)}>
-          <KeyBrief k={brief.key} />
+          <KeyBrief k={brief.key} anchor={anchor} />
         </BriefOverlay>
       )}
       {brief?.kind === 'prog' && (
