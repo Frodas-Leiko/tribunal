@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { KEYS, PROGRESSIONS, MODE_LABELS, type KeyDef, type DictateMode } from '@/lib/music';
 import {
-  getKeyProgress, isStageUnlocked, isStageComplete, TARGET_TEMPO, type ProgressMap,
+  getKeyProgress, isStageComplete, recommendedNext, TARGET_TEMPO, type ProgressMap,
 } from '@/lib/store';
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
 import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
@@ -35,7 +35,11 @@ export function Home({ progress, onStart, openAudio }: {
   const stages = [1, 2, 3, 4, 5];
 
   const selProgress = selected ? getKeyProgress(progress, selected.id) : null;
-  const modeBLocked = selProgress ? !selProgress.doneA : true;
+
+  // R11: Es gibt keine Sperre mehr – nur noch diesen Hinweis auf die nächste
+  // Einheit. Er markiert, er verhindert nichts.
+  const recommended = recommendedNext(progress);
+  const recMode = selected && recommended?.keyId === selected.id ? recommended.mode : null;
 
   // Tempo-Level aus dem Fortschritt; Slider kann darüber/darunter (freies Tempo)
   const levelTempo = selected
@@ -73,30 +77,30 @@ export function Home({ progress, onStart, openAudio }: {
           Fünf Stufen entlang des Quintenzirkels – jede bringt genau ein neues Vorzeichen.
           Eine Stufe gilt als geschafft, wenn beide Tonarten in <em>Modus A</em> und <em>Modus B</em>
           bei {TARGET_TEMPO} bpm je 8 fehlerfreie Wiederholungen in Folge stehen.
+          Spielbar ist jede Tonart jederzeit; der Plan empfiehlt die nächste Einheit, er sperrt nichts.
         </p>
       </section>
 
       <div className="stage-grid">
         {stages.map((s) => {
-          const unlocked = isStageUnlocked(progress, s);
           const complete = isStageComplete(progress, s);
+          const recStage = recommended?.stage === s;
           return (
-            <div key={s} className={`stage ${unlocked ? '' : 'locked'} ${complete ? 'complete' : ''}`}>
+            <div key={s} className={`stage ${complete ? 'complete' : ''} ${recStage ? 'recommended' : ''}`}>
               <div className="stage-head">
-                <span className="stage-num" style={{ color: complete ? COLORS.green : unlocked ? COLORS.amber : COLORS.dim }}>
+                <span className="stage-num" style={{ color: complete ? COLORS.green : recStage ? COLORS.amber : COLORS.dim }}>
                   Stufe {s}
                 </span>
-                {!unlocked && <span className="stage-lock">🔒</span>}
                 {complete && <span className="stage-lock">✓</span>}
               </div>
               <div className="stage-keys">
                 {KEYS.filter((k) => k.stage === s).map((k) => {
                   const p = getKeyProgress(progress, k.id);
+                  const recKey = recommended?.keyId === k.id;
                   return (
                     <button
                       key={k.id}
-                      disabled={!unlocked}
-                      className={`key-card ${selected?.id === k.id ? 'selected' : ''}`}
+                      className={`key-card ${selected?.id === k.id ? 'selected' : ''} ${recKey ? 'recommended' : ''}`}
                       onClick={() => setSelected(k)}
                     >
                       <span className="key-name">{k.label}</span>
@@ -105,6 +109,7 @@ export function Home({ progress, onStart, openAudio }: {
                         <em className={p.doneA ? 'done' : ''}>A {p.doneA ? '✓' : `${p.tempoA}`}</em>
                         <em className={p.doneB ? 'done' : ''}>B {p.doneB ? '✓' : `${p.tempoB}`}</em>
                       </span>
+                      {recKey && <span className="key-rec">empfohlen · Modus {recommended.mode}</span>}
                       <span
                         className="key-brief"
                         onClick={(e) => { e.stopPropagation(); setBrief({ kind: 'key', key: k }); }}
@@ -148,14 +153,14 @@ export function Home({ progress, onStart, openAudio }: {
                 {(['A', 'B', 'C'] as DictateMode[]).map((m) => (
                   <button
                     key={m}
-                    disabled={m === 'B' && modeBLocked}
-                    className={mode === m ? 'active' : ''}
+                    className={`${mode === m ? 'active' : ''} ${recMode === m ? 'recommended' : ''}`}
                     onClick={() => setMode(m)}
-                    title={m === 'B' && modeBLocked ? 'Erst Modus A abschließen' : ''}
+                    title={recMode === m ? 'Empfohlene nächste Einheit' : ''}
                   >
-                    {m}{m === 'B' && modeBLocked ? ' 🔒' : ''} · {MODE_LABELS[m]}
+                    {m} · {MODE_LABELS[m]}
                   </button>
                 ))}
+                {recMode && <span className="setup-hint">empfohlen: Modus {recMode}</span>}
               </div>
             </div>
           ) : (

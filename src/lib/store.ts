@@ -83,9 +83,28 @@ export function isStageComplete(map: ProgressMap, stage: number): boolean {
   });
 }
 
-export function isStageUnlocked(map: ProgressMap, stage: number): boolean {
-  if (stage <= 1) return true;
-  return isStageComplete(map, stage - 1);
+export interface Recommendation {
+  stage: number;
+  keyId: string;
+  mode: 'A' | 'B';
+}
+
+/**
+ * R11: Der Stufenplan empfiehlt, statt zu sperren. Empfohlen ist die erste nicht
+ * abgeschlossene Stufe, darin die erste Tonart mit offenem Modus – Modus A vor
+ * Modus B. Steht alles, gibt es nichts mehr zu empfehlen (`null`).
+ */
+export function recommendedNext(map: ProgressMap): Recommendation | null {
+  const stages = [...new Set(KEYS.map((k) => k.stage))].sort((a, b) => a - b);
+  for (const stage of stages) {
+    if (isStageComplete(map, stage)) continue;
+    for (const k of KEYS.filter((key) => key.stage === stage)) {
+      const p = getKeyProgress(map, k.id);
+      if (!p.doneA) return { stage, keyId: k.id, mode: 'A' };
+      if (!p.doneB) return { stage, keyId: k.id, mode: 'B' };
+    }
+  }
+  return null;
 }
 
 // ── Statistik ────────────────────────────────────────────────────────────────

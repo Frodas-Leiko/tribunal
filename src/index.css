@@ -85,8 +85,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .stage-grid { display: flex; flex-direction: column; gap: 14px; }
 .stage { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; background: rgba(35, 39, 46, 0.6); }
-.stage.locked { opacity: 0.5; }
 .stage.complete { border-color: rgba(63, 206, 122, 0.4); }
+/* R11: Empfehlung ist ein Hinweis, kein Zustand – gestrichelt, nie ausgegraut. */
+.stage.recommended { border-color: rgba(232, 163, 61, 0.45); }
 .stage-head { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .stage-num { font-size: 15px; letter-spacing: 0.18em; text-transform: uppercase; }
 .stage-keys { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -98,7 +99,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   padding: 12px 14px; cursor: pointer; color: var(--text); text-align: left;
 }
 .key-card:hover:not(:disabled) { border-color: var(--amber); }
+.key-card.recommended { outline: 1px dashed var(--amber); outline-offset: 2px; }
 .key-card.selected { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
+.key-rec { color: var(--amber); font-size: 12px; margin-top: 4px; }
 .key-name { font-size: 22px; font-weight: 600; }
 .key-acc { color: var(--dim); font-size: 12px; }
 .key-badges { display: flex; gap: 10px; margin-top: 4px; }
@@ -112,6 +115,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .setup-label { width: 90px; color: var(--dim); font-size: 13px; padding-top: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
 .setup-opts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .setup-opts .brief-btn { color: var(--amber); border: none; background: none; padding: 4px; font-size: 15px; }
+.setup-opts button.recommended { outline: 1px dashed var(--amber); outline-offset: 2px; }
+.setup-hint { color: var(--amber); font-size: 12px; }
 .prog-chip { display: inline-flex; align-items: center; gap: 0; }
 .start-btn {
   margin-top: 14px; width: 100%; padding: 14px;
