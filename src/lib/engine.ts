@@ -8,6 +8,7 @@ import {
   diatonicChords, getKey, tribunal,
   type ChordDef, type DictateMode, PROGRESSIONS,
 } from './music';
+import { createSessionMachine, type SessionMachine, type SessionState } from './session-state';
 import { spellTriad, zoneOf, type SpelledNote, type Zone } from './staff';
 import {
   loadStats, recordAttempt, weaknessWeights, passTempo, PASS_STREAK, START_TEMPO,
@@ -50,7 +51,7 @@ export interface Hud {
   banner: string | null;
   chordIndex: number;
   beatsPerBar: number;
-  paused: boolean;
+  state: SessionState;   // die Anzeige leitet sich aus dem Zustand ab, nicht aus der Feedback-Art
 }
 
 export interface ClockRef {
@@ -84,7 +85,6 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const upcomingRef = useRef<ChordDef | null>(null); // Vorschau: einen Schritt voraus gezogener Akkord
   const currentBeatRef = useRef(-1);   // Beat-Nr., der currentRef zugeordnet ist
   const beatBaseRef = useRef(0);       // Offset: Beat-Nr. = base + schedulerIndex/subs
-  const pausedRef = useRef(true);
   const resumeTimerRef = useRef<number | null>(null);
   const skipEvalBeatRef = useRef(-1); // Beat, der bereits per Anschlag bewertet wurde
   const streakRef = useRef(0);
@@ -95,6 +95,41 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const evalTimersRef = useRef<number[]>([]);
   const onPassRef = useRef(onPass);
   onPassRef.current = onPass;
+
+  // R17: der einzige Ort, an dem der Zustand wechselt. Jeder Übergang räumt die
+  // hier übergebenen Ressourcen auf – vollständig, ohne Ausnahme. Der Automat
+  // entsteht beim ersten Zugriff, nicht während des Renderings: die Handles
+  // dürfen die Refs erst binden, wenn sie außerhalb des Renderings laufen.
+  const machineRef = useRef<SessionMachine | null>(null);
+  const getMachine = useCallback((): SessionMachine => {
+    const existing = machineRef.current;
+    if (existing) return existing;
+    const machine = createSessionMachine({
+      stopScheduler: () => {
+        schedRef.current?.stop();
+        schedRef.current = null;
+      },
+      clearEvalTimers: () => {
+        evalTimersRef.current.forEach((t) => window.clearTimeout(t));
+        evalTimersRef.current = [];
+      },
+      clearResumeTimer: () => {
+        if (resumeTimerRef.current !== null) {
+          window.clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = null;
+        }
+      },
+      clearNotes: () => {
+        notesRef.current = [];
+      },
+      stopClock: () => {
+        // Die Uhr steht; der Balken beginnt beim nächsten Start sichtbar neu (R19).
+        clockRef.current = { ...clockRef.current, active: false, segInBeat: 0 };
+      },
+    });
+    machineRef.current = machine;
+    return machine;
+  }, []);
 
   const key = getKey(config.keyId);
   const subs = config.exercise === 1 ? 4 : 3;
@@ -154,19 +189,15 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
   // ── Pausieren (bei Fehler im Stopp-Modus) ─────────────────────────────────
   const pauseSession = useCallback(() => {
-    schedRef.current?.stop();
-    schedRef.current = null;
-    evalTimersRef.current.forEach((t) => window.clearTimeout(t));
-    evalTimersRef.current = [];
-    clockRef.current.active = false;
-    pausedRef.current = true;
-    setHud((h) => h && ({ ...h, paused: true }));
-  }, []);
+    const machine = getMachine();
+    if (!machine.to('PAUSED')) return;
+    setHud((h) => h && ({ ...h, state: machine.state }));
+  }, [getMachine]);
 
   // ── Auswertung eines Beats (laufende Übung) ───────────────────────────────
   const evaluate = useCallback((beatPerf: number, beatIndex: number) => {
     const cur = currentRef.current;
-    if (!cur || pausedRef.current) return;
+    if (!cur || getMachine().state !== 'RUNNING') return;
     const notes = notesRef.current.filter((n) => n.time >= beatPerf - WINDOW && n.time <= beatPerf + WINDOW);
     notesRef.current = notesRef.current.filter((n) => n.time > beatPerf + WINDOW);
 
@@ -246,7 +277,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     // Timing-Fehler (zu früh/spät, Töne korrekt) werden nur angezeigt – der Takt läuft weiter.
     const halts = feedback.kind === 'wrong' || feedback.kind === 'miss';
     if (halts && config.errorMode === 'stop') pauseSession();
-  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, registerSuccess, pauseSession]);
+  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, getMachine, registerSuccess, pauseSession]);
 
   // ── Beat-Scheduling ───────────────────────────────────────────────────────
   const onEvent = useCallback((ev: { time: number; index: number }) => {
@@ -310,7 +341,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       banner: h?.banner ?? null,
       chordIndex: beatIndex,
       beatsPerBar: config.exercise === 2 ? 2 : 1,
-      paused: false,
+      state: getMachine().state,
     }));
 
     // Der Wiedereinstiegs-Anschlag wurde bereits bewertet – diesen Beat nicht doppelt auswerten
@@ -320,17 +351,25 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     }
     const beatPerf = ev.time * 1000 + perfOffsetRef.current;
     const delay = Math.max(0, beatPerf + EVAL_DELAY - performance.now());
-    const t = window.setTimeout(() => evaluate(beatPerf, beatIndex), delay);
+    // AK 3: Der Timer trägt sich nach dem Feuern selbst aus – die Liste enthält
+    // nur noch ausstehende Auswertungen.
+    const t = window.setTimeout(() => {
+      evalTimersRef.current = evalTimersRef.current.filter((id) => id !== t);
+      evaluate(beatPerf, beatIndex);
+    }, delay);
     evalTimersRef.current.push(t);
-  }, [config.exercise, subs, nextChord, key, evaluate]);
+  }, [config.exercise, subs, nextChord, key, getMachine, evaluate]);
 
   // ── Wiedereinstieg / erster Anschlag ──────────────────────────────────────
-  // Läuft nur im pausierten Zustand: prüft, ob der aktuelle Ziel-Akkord korrekt
-  // gespielt wurde. Wenn ja: Uhr wird auf diesen Anschlag kalibriert, weiter geht's.
+  // Läuft in ARMED (vor dem ersten Anschlag) und PAUSED (nach einem Fehler): prüft,
+  // ob der aktuelle Ziel-Akkord korrekt gespielt wurde. Wenn ja: Uhr wird auf
+  // diesen Anschlag kalibriert, weiter geht's.
   const tryResume = useCallback((t0: number) => {
     const cur = currentRef.current;
     const metro = metroRef.current;
-    if (!cur || !metro || !pausedRef.current) return;
+    if (!cur || !metro) return;
+    const machine = getMachine();
+    if (machine.state !== 'ARMED' && machine.state !== 'PAUSED') return;
 
     const notes = notesRef.current.filter((n) => n.time >= t0 - 30 && n.time <= t0 + RESUME_WINDOW);
     if (notes.length === 0) return;
@@ -361,10 +400,11 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       perfOffsetRef.current = performance.now() - ctx.currentTime * 1000;
       const noteAudio = (t0 - perfOffsetRef.current) / 1000;
 
-      pausedRef.current = false;
+      // R17: Der Übergang räumt Wiedereinstiegs-Timer, Notenpuffer und Uhr auf –
+      // der Balken beginnt damit sichtbar neu (Segment 1, Cursor erst mit dem
+      // ersten Event). Der neue Scheduler entsteht erst danach.
+      machine.to('RUNNING');
       skipEvalBeatRef.current = currentBeatRef.current; // dieser Beat ist durch den Anschlag bereits bewertet
-      // Der Balken beginnt sichtbar neu: Segment 1, Cursor erst mit dem ersten Event.
-      clockRef.current = { ...clockRef.current, segInBeat: 0, active: false };
       const sched = new Scheduler(() => ctx, () => config.exercise === 1 ? (60 / tempoRef.current) / 4 : (60 / tempoRef.current) / 2, onEvent);
       schedRef.current = sched;
       // R19: `noteAudio` liegt mindestens RESUME_WINDOW zurück. start() schiebt den
@@ -375,7 +415,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
       setHud((h) => h && ({
         ...h,
-        paused: false,
+        state: machine.state,
         feedback: { kind: 'ok', big: 'Richtig – Uhr läuft', small: 'Der Takt folgt deinem Anschlag.', offsetMs: null },
         streak: streakRef.current,
         banner: banner ?? h.banner,
@@ -405,10 +445,14 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, subs, onEvent, registerSuccess]);
+  }, [config.exercise, config.keyId, key, subs, getMachine, onEvent, registerSuccess]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
+    // Zurück auf Anfang: der Übergang räumt auf, was von einer vorherigen Einheit
+    // im selben Hook noch stehen könnte (StrictMode-Doppelstart).
+    const machine = getMachine();
+    machine.to('IDLE');
     // Kein eigener Kontext (R18): `audio` ist in der Nutzergeste entstanden. Ein
     // zweiter start() – etwa der Doppelstart unter StrictMode – hängt sich an
     // denselben Kontext, statt einen weiteren zu öffnen.
@@ -429,7 +473,6 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     upDownRef.current = 0;
     streakRef.current = 0;
     offsetsRef.current = [];
-    notesRef.current = [];
     beatBaseRef.current = 0;
     skipEvalBeatRef.current = -1;
 
@@ -438,7 +481,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     currentRef.current = { chord: first, shift: 0 };
     upcomingRef.current = nextChord(); // Vorschau ab dem ersten Beat
     currentBeatRef.current = 0;
-    pausedRef.current = true;
+    machine.to('ARMED');
 
     const spelled = spellTriad(first, key, 0);
     setHud({
@@ -462,40 +505,34 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       banner: null,
       chordIndex: 0,
       beatsPerBar: config.exercise === 2 ? 2 : 1,
-      paused: true,
+      state: machine.state,
     });
 
     void requestWakeLock();
-  }, [config, key, nextChord, audio]);
+  }, [config, key, nextChord, audio, getMachine]);
 
   const stop = useCallback(() => {
-    schedRef.current?.stop();
-    schedRef.current = null;
-    evalTimersRef.current.forEach((t) => window.clearTimeout(t));
-    evalTimersRef.current = [];
-    if (resumeTimerRef.current !== null) {
-      window.clearTimeout(resumeTimerRef.current);
-      resumeTimerRef.current = null;
-    }
-    clockRef.current.active = false;
-    pausedRef.current = true;
+    getMachine().to('ENDED'); // R17: räumt Scheduler, Timer, Puffer und Uhr auf
     metroRef.current = null; // R18/AK 4: kein Metronom überlebt einen Stopp
-  }, []);
+  }, [getMachine]);
 
   useEffect(() => stop, [stop]);
 
   const handleNote = useCallback((ev: NoteEvent) => {
+    // In IDLE und ENDED nimmt die Session keine Eingabe an (R17-Tabelle).
+    const machine = getMachine();
+    if (machine.state === 'IDLE' || machine.state === 'ENDED') return;
     notesRef.current.push(ev);
     if (notesRef.current.length > 64) notesRef.current = notesRef.current.slice(-64);
-    // Pausiert (Start oder Fehler-Stopp)? → Wiedereinstiegs-Versuch einleiten
-    if (pausedRef.current && resumeTimerRef.current === null) {
+    // Steht die Uhr (ARMED oder PAUSED)? → Wiedereinstiegs-Versuch einleiten
+    if (machine.state !== 'RUNNING' && resumeTimerRef.current === null) {
       const t0 = ev.time;
       resumeTimerRef.current = window.setTimeout(() => {
         resumeTimerRef.current = null;
         tryResume(t0);
       }, RESUME_WINDOW);
     }
-  }, [tryResume]);
+  }, [getMachine, tryResume]);
 
   const clearBanner = useCallback(() => setHud((h) => h && ({ ...h, banner: null })), []);
 

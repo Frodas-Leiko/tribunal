@@ -90,7 +90,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
         {/* Tribunal oben */}
         <Tribunal feedback={hud?.feedback ?? null} />
 
-        {hud?.paused && hud.feedback?.kind !== 'info' && (
+        {hud?.state === 'PAUSED' && (
           <div className="paused-chip">
             ⏸ Pausiert – spiele <strong>{hud.chordName}</strong> korrekt, um fortzufahren
           </div>
