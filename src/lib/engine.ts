@@ -92,6 +92,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const metroRef = useRef<Metronome | null>(null);
   const schedRef = useRef<Scheduler | null>(null);
   const tempoRef = useRef(START_TEMPO);
+  // B-15: Das Fortschritts-Level der laufenden Einheit. Es steigt mit jeder
+  // bestandenen Serie – `config.levelTempo` ist nur der Startwert.
+  const levelRef = useRef(config.levelTempo);
   const notesRef = useRef<NoteEvent[]>([]);
   const perfOffsetRef = useRef(0);
   const seqIdxRef = useRef(0);
@@ -203,22 +206,25 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     streakRef.current = 0;
     let banner: string;
     if (config.source === 'stufen' && config.mode !== 'C') {
-      if (tempoRef.current === config.levelTempo) {
+      // B-15: Verglichen wird gegen das *mitlaufende* Level, nicht gegen den beim
+      // Start eingefrorenen Wert. Sonst zählt ab der zweiten Serie nichts mehr.
+      if (tempoRef.current === levelRef.current) {
         // R24: Eine Tür. Die Engine kennt keinen Speicher-Schlüssel mehr.
         const res = passTempo(config.keyId, config.mode);
         banner = res.justCompleted
           ? `Modus ${config.mode} abgeschlossen! ${config.mode === 'A' ? 'Modus B ist jetzt dein Prüfstein.' : 'Diese Tonart sitzt.'}`
           : `Serie geschafft – Tempo-Level steigt auf ${res.newTempo} bpm.`;
         tempoRef.current = res.newTempo;
+        levelRef.current = res.newTempo;
       } else {
-        banner = `Serie geschafft – Fortschritt zählt auf Level ${config.levelTempo} bpm (freies Tempo: ${tempoRef.current}).`;
+        banner = `Serie geschafft – Fortschritt zählt auf Level ${levelRef.current} bpm (freies Tempo: ${tempoRef.current}).`;
       }
     } else {
       banner = `Serie geschafft – ${PASS_STREAK} in Folge.`;
     }
     onPassRef.current();
     return banner;
-  }, [config.source, config.mode, config.levelTempo, config.keyId]);
+  }, [config.source, config.mode, config.keyId]);
 
   // ── Banner-Lebensdauer (R22) ──────────────────────────────────────────────
   // Ein Banner verschwindet von selbst – der „Weiter"-Button ist Zugabe, nicht
@@ -538,6 +544,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     const metro = new Metronome(audio);
     metroRef.current = metro;
     tempoRef.current = initialTempo;
+    levelRef.current = config.levelTempo;
 
     if (config.source === 'progression') {
       const prog = PROGRESSIONS.find((p) => p.id === config.progressionId);

@@ -1,10 +1,11 @@
 // Tests der Stufenplan-Empfehlung (B-14, R11). Ohne DOM: die Empfehlung ist eine
 // reine Funktion des Fortschritts – sie markiert, sie sperrt nicht.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KEYS } from '@/lib/music';
 import {
-  migrateProgress, migrateStats, recommendedNext, SCHEMA_VERSION,
+  getKeyProgress, loadProgress, migrateProgress, migrateStats, passTempo, recommendedNext,
+  SCHEMA_VERSION, START_TEMPO, TARGET_TEMPO, TEMPO_STEP,
   type ProgressMap,
 } from '@/lib/store';
 
@@ -109,5 +110,43 @@ describe('migrateStats (R25)', () => {
     const a = migrateStats('{kein json').data;
     a.attempts = 5;
     expect(migrateStats('{kein json').data.attempts).toBe(0);
+  });
+});
+
+// ── Tempo-Leiter in Folge (B-15, R10) ────────────────────────────────────────
+
+/** Speicher im Arbeitsspeicher: die Testumgebung ist `node`, kein Browser. */
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() { return m.size; },
+    clear: () => m.clear(),
+    getItem: (k: string) => m.get(k) ?? null,
+    key: (i: number) => [...m.keys()][i] ?? null,
+    removeItem: (k: string) => { m.delete(k); },
+    setItem: (k: string, v: string) => { m.set(k, v); },
+  };
+}
+
+describe('passTempo in Folge', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('hebt das Level Schritt für Schritt bis TARGET_TEMPO und meldet dann done', () => {
+    const gesehen: number[] = [];
+    let fertig = false;
+    // Ein Lauf ohne Verlassen der Einheit: jede Serie ruft passTempo erneut.
+    for (let i = 0; i < 15 && !fertig; i++) {
+      const res = passTempo('C-dur', 'A');
+      gesehen.push(res.newTempo);
+      fertig = res.justCompleted;
+    }
+    const stufen = (TARGET_TEMPO - START_TEMPO) / TEMPO_STEP;
+    expect(gesehen.slice(0, stufen)).toEqual(
+      Array.from({ length: stufen }, (_, i) => START_TEMPO + TEMPO_STEP * (i + 1)),
+    );
+    expect(gesehen[stufen]).toBe(TARGET_TEMPO);
+    expect(fertig).toBe(true);
+    expect(getKeyProgress(loadProgress().data, 'C-dur').doneA).toBe(true);
   });
 });

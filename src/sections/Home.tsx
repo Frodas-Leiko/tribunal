@@ -1,6 +1,6 @@
 // ── Stufenplan & Session-Setup ───────────────────────────────────────────────
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { KEYS, PROGRESSIONS, MODE_LABELS, type KeyDef, type DictateMode } from '@/lib/music';
 import {
   getKeyProgress, isStageComplete, recommendedNext, PASS_STREAK, TARGET_TEMPO, type ProgressMap,
@@ -30,6 +30,10 @@ export function Home({ progress, onStart, openAudio }: {
   const [tolerance, setTolerance] = useState(50);
   const [anchor, setAnchor] = useState<number>(ANCHOR_DEFAULT);
   const [errorMode, setErrorMode] = useState<ErrorMode>('stop');
+  // B-15 AK 3: Der Regler gehört zu genau einer Einheit. Wechselt Tonart, Quelle
+  // oder Modus, gilt wieder das Level-Tempo – zurückgesetzt im selben Klick, nicht
+  // in einem Effekt hinterher: die alte Fassung zeigte dazwischen einen Rahmen
+  // lang „freies Tempo", obwohl niemand den Regler angefasst hatte.
   const [tempoOverride, setTempoOverride] = useState<number | null>(null);
 
   const stages = [1, 2, 3, 4, 5];
@@ -52,10 +56,13 @@ export function Home({ progress, onStart, openAudio }: {
       : 60
     : 60;
   const effectiveTempo = tempoOverride ?? levelTempo;
+  // „Freies Tempo" heißt: der Regler steht bewusst neben dem Level (B-15 AK 3).
+  const freiesTempo = tempoOverride !== null && tempoOverride !== levelTempo;
 
-  useEffect(() => {
-    setTempoOverride(null);
-  }, [selected?.id, source, mode]);
+  // Jede Wahl, die die Einheit wechselt, gibt den Regler frei.
+  const chooseKey = (k: KeyDef) => { setSelected(k); setTempoOverride(null); };
+  const chooseSource = (s: 'stufen' | 'progression') => { setSource(s); setTempoOverride(null); };
+  const chooseMode = (m: DictateMode) => { setMode(m); setTempoOverride(null); };
 
   const start = () => {
     if (!selected) return;
@@ -101,7 +108,7 @@ export function Home({ progress, onStart, openAudio }: {
                     <button
                       key={k.id}
                       className={`key-card ${selected?.id === k.id ? 'selected' : ''} ${recKey ? 'recommended' : ''}`}
-                      onClick={() => setSelected(k)}
+                      onClick={() => chooseKey(k)}
                     >
                       <span className="key-name">{k.label}</span>
                       <span className="key-acc">{k.accidentals}</span>
@@ -141,8 +148,8 @@ export function Home({ progress, onStart, openAudio }: {
           <div className="setup-row">
             <span className="setup-label">Quelle</span>
             <div className="setup-opts">
-              <button className={source === 'stufen' ? 'active' : ''} onClick={() => setSource('stufen')}>Stufen</button>
-              <button className={source === 'progression' ? 'active' : ''} onClick={() => setSource('progression')}>Akkordfolge</button>
+              <button className={source === 'stufen' ? 'active' : ''} onClick={() => chooseSource('stufen')}>Stufen</button>
+              <button className={source === 'progression' ? 'active' : ''} onClick={() => chooseSource('progression')}>Akkordfolge</button>
             </div>
           </div>
 
@@ -154,7 +161,7 @@ export function Home({ progress, onStart, openAudio }: {
                   <button
                     key={m}
                     className={`${mode === m ? 'active' : ''} ${recMode === m ? 'recommended' : ''}`}
-                    onClick={() => setMode(m)}
+                    onClick={() => chooseMode(m)}
                     title={recMode === m ? 'Empfohlene nächste Einheit' : ''}
                   >
                     {m} · {MODE_LABELS[m]}
@@ -190,7 +197,7 @@ export function Home({ progress, onStart, openAudio }: {
                 className="tempo-slider"
               />
               <span className="tempo-value">{effectiveTempo} bpm</span>
-              {effectiveTempo !== levelTempo && source === 'stufen' && mode !== 'C' && (
+              {freiesTempo && source === 'stufen' && mode !== 'C' && (
                 <span className="tempo-hint">freies Tempo · Fortschritt zählt auf Level {levelTempo} bpm</span>
               )}
             </div>
