@@ -4,8 +4,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  ANCHORS, ANCHOR_DEFAULT, NATURAL_PC, REGISTER_TOLERANCE, anchorLabel, registerHint,
-  registerOffset, spellTriad, type SpelledNote,
+  ANCHORS, ANCHOR_DEFAULT, BOTTOM_LINE, NATURAL_PC, REGISTER_TOLERANCE, TOP_LINE,
+  ZONE_SHIFT, anchorLabel, registerHint, registerOffset, spellTriad, staffLayout, unitFrame,
+  topographyRange, zoneOf, zoneOfShift, type SpelledNote, type Zone,
 } from '@/lib/staff';
 import { KEYS, diatonicChords, getKey } from '@/lib/music';
 
@@ -177,6 +178,164 @@ describe('spellTriad · Block-Versatz und Lage (R12.2, R12.4)', () => {
           expect(c3[i].letterIdx).toBe(n.letterIdx);
           expect(c5[i].accidental).toBe(n.accidental);
         });
+      }
+    }
+  });
+});
+
+// ── Darstellung (Paket 3) ───────────────────────────────────────────────────
+
+describe('Zonen-Zuordnung (B-10, R13)', () => {
+  it('leitet die Zone aus der Verschiebung ab, nicht aus einem Notenkopf', () => {
+    expect(zoneOfShift(0)).toBe('zentrum');
+    expect(zoneOfShift(1)).toBe('zenit');
+    expect(zoneOfShift(-1)).toBe('nadir');
+    expect(ZONE_SHIFT.zenit).toBe(1);
+    expect(ZONE_SHIFT.zentrum).toBe(0);
+    expect(ZONE_SHIFT.nadir).toBe(-1);
+  });
+
+  it('widerspricht dem gemessenen Befund: die Terz allein trifft die Zone nicht', () => {
+    // Zenit-versetzter C-Dur-Block C5–E5–G5: die Terz E5 hat diatonic 37, TOP_LINE
+    // ist 38 – zoneOf() nennt das „zentrum", obwohl der Block im Zenit steht.
+    const key = getKey('C-dur');
+    const chord = diatonicChords(key).find((c) => c.degree === 'I')!;
+    const zenit = spellTriad(chord, key, ZONE_SHIFT.zenit);
+    expect(zoneOf(zenit[1].diatonic)).toBe('zentrum');   // die alte Herleitung
+    expect(zoneOfShift(ZONE_SHIFT.zenit)).toBe('zenit'); // die neue
+  });
+
+  it('beschreibt mit zoneOf weiterhin die einzelne Note (AK 3)', () => {
+    expect(zoneOf(TOP_LINE + 1)).toBe('zenit');
+    expect(zoneOf(TOP_LINE)).toBe('zentrum');
+    expect(zoneOf(BOTTOM_LINE)).toBe('zentrum');
+    expect(zoneOf(BOTTOM_LINE - 1)).toBe('nadir');
+  });
+});
+
+describe('Zeichenfläche des Notensystems (B-09)', () => {
+  const ZONEN: Zone[] = ['zenit', 'zentrum', 'nadir'];
+
+  it('hält Block, Zonen und Systemlinien in jeder Tonart, Lage und Zone im Bild (AK 1, AK 2)', () => {
+    for (const key of KEYS) {
+      for (const anchor of ANCHORS) {
+        const frame = unitFrame(key, anchor);
+        for (const chord of diatonicChords(key)) {
+          const base = spellTriad(chord, key, 0, anchor);
+          const L = staffLayout({ lo: base[0].diatonic, hi: base[2].diatonic }, frame);
+          const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`;
+
+          // Die fünf Systemlinien liegen im Bild
+          for (const y of L.lines) {
+            expect(y, `${wo}: Systemlinie`).toBeGreaterThanOrEqual(0);
+            expect(y, `${wo}: Systemlinie`).toBeLessThanOrEqual(L.height);
+          }
+
+          for (const zone of ZONEN) {
+            // Zonenband vollständig im Bild
+            const band = L.zones[zone];
+            expect(band.y, `${wo}: Band ${zone}`).toBeGreaterThanOrEqual(0);
+            expect(band.y + band.h, `${wo}: Band ${zone}`).toBeLessThanOrEqual(L.height);
+
+            // Notenköpfe samt Klammer (±12 px) im Bild – und im eigenen Band
+            const block = spellTriad(chord, key, ZONE_SHIFT[zone], anchor);
+            for (const n of block) {
+              const y = L.y(n.diatonic);
+              expect(y - 12, `${wo}: ${zone} Notenkopf`).toBeGreaterThanOrEqual(0);
+              expect(y + 12, `${wo}: ${zone} Notenkopf`).toBeLessThanOrEqual(L.height);
+              expect(y, `${wo}: ${zone} im Band`).toBeGreaterThanOrEqual(band.y);
+              expect(y, `${wo}: ${zone} im Band`).toBeLessThanOrEqual(band.y + band.h);
+            }
+
+            // Hilfslinien zwischen Block und System liegen ebenfalls im Bild
+            for (const n of block) {
+              for (let l = TOP_LINE + 2; l <= n.diatonic; l += 2) {
+                expect(L.y(l), `${wo}: Hilfslinie oben`).toBeGreaterThanOrEqual(0);
+              }
+              for (let l = BOTTOM_LINE - 2; l >= n.diatonic; l -= 2) {
+                expect(L.y(l), `${wo}: Hilfslinie unten`).toBeLessThanOrEqual(L.height);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('trennt die drei Bänder überschneidungsfrei, Zenit oben', () => {
+    const key = getKey('C-dur');
+    const L = staffLayout({ lo: 28, hi: 32 }, unitFrame(key)); // C4–G4
+    expect(L.zones.zenit.y + L.zones.zenit.h).toBeLessThanOrEqual(L.zones.zentrum.y);
+    expect(L.zones.zentrum.y + L.zones.zentrum.h).toBeLessThanOrEqual(L.zones.nadir.y);
+  });
+
+  it('behält den Zeilenabstand: eine diatonische Stufe ist ein halber Linienabstand', () => {
+    const L = staffLayout({ lo: 28, hi: 32 }, unitFrame(getKey('C-dur')));
+    expect(L.y(30) - L.y(31)).toBe(L.lineGap / 2);
+    expect(L.lines[0]).toBe(L.y(TOP_LINE));
+    expect(L.lines[4]).toBe(L.y(BOTTOM_LINE));
+  });
+
+  it('lässt die Systemlinien stehen, während die Noten wandern (Regression)', () => {
+    // Die Zeichenfläche hängt am Rahmen der Einheit, nicht am aktuellen Akkord.
+    // Sonst verschiebt jeder Stufenwechsel das ganze System um eine Notenzeile.
+    for (const key of KEYS) {
+      for (const anchor of ANCHORS) {
+        const frame = unitFrame(key, anchor);
+        const layouts = diatonicChords(key).map((chord) => {
+          const b = spellTriad(chord, key, 0, anchor);
+          return staffLayout({ lo: b[0].diatonic, hi: b[2].diatonic }, frame);
+        });
+        const wo = `${key.label} in ${anchorLabel(anchor)}`;
+        for (const L of layouts) {
+          expect(L.height, `${wo}: Höhe`).toBe(layouts[0].height);
+          expect(L.lines, `${wo}: Systemlinien`).toEqual(layouts[0].lines);
+          expect(L.y(TOP_LINE), `${wo}: Bezugspunkt`).toBe(layouts[0].y(TOP_LINE));
+        }
+      }
+    }
+  });
+
+  it('umfasst der Rahmen den ganzen Stufenvorrat der Tonart', () => {
+    for (const key of KEYS) {
+      for (const anchor of ANCHORS) {
+        const frame = unitFrame(key, anchor);
+        for (const chord of diatonicChords(key)) {
+          const b = spellTriad(chord, key, 0, anchor);
+          const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`;
+          expect(b[0].diatonic, wo).toBeGreaterThanOrEqual(frame.lo);
+          expect(b[2].diatonic, wo).toBeLessThanOrEqual(frame.hi);
+        }
+      }
+    }
+  });
+});
+
+describe('Kartenausschnitt der Topographie (B-11)', () => {
+  it('umfasst mindestens C2…C6 (AK 1)', () => {
+    for (const key of KEYS) {
+      for (const anchor of ANCHORS) {
+        const { start, end } = topographyRange(anchor, key.tonic);
+        expect(start, `${key.label} ${anchorLabel(anchor)}`).toBeLessThanOrEqual(36);
+        expect(end, `${key.label} ${anchorLabel(anchor)}`).toBeGreaterThanOrEqual(84);
+        expect(start % 12, 'beginnt auf einem C').toBe(0);
+      }
+    }
+  });
+
+  it('enthält jeden Ton jeder Stufe – auch zenit- und nadir-versetzt (AK 1)', () => {
+    for (const key of KEYS) {
+      for (const anchor of ANCHORS) {
+        const { start, end } = topographyRange(anchor, key.tonic);
+        for (const chord of diatonicChords(key)) {
+          for (const shift of SHIFTS) {
+            for (const n of spellTriad(chord, key, shift, anchor)) {
+              const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)} (${shift})`;
+              expect(n.midi, wo).toBeGreaterThanOrEqual(start);
+              expect(n.midi, wo).toBeLessThanOrEqual(end);
+            }
+          }
+        }
       }
     }
   });

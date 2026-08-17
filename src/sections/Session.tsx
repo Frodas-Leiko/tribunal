@@ -5,6 +5,7 @@ import { useSession } from '@/lib/engine';
 import type { SessionSetup } from './Home';
 import { useNoteInput, DEMO_HINT } from '@/lib/midi';
 import { getKey, PROGRESSIONS } from '@/lib/music';
+import { unitFrame } from '@/lib/staff';
 import { Staff, Topography, SubdivisionBar, Tribunal, COLORS } from '@/components/Visuals';
 
 export function Session({ setup, audio, onExit, onProgressChanged }: {
@@ -53,7 +54,10 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
     ? PROGRESSIONS.find((p) => p.id === setup.progressionId)?.name
     : null;
 
-  const rootMidi = hud?.spelled?.[0]?.midi ?? null;
+  const griffMulde = hud?.spelled?.map((n) => n.midi) ?? [];
+  // B-09: Der Rahmen steht für die ganze Einheit fest – die Notenköpfe wandern,
+  // die Systemlinien nicht.
+  const rahmen = unitFrame(key, setup.anchor);
 
   return (
     <div className="session">
@@ -114,7 +118,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
           </div>
         ) : (
           <div className="staff-wrap">
-            <Staff spelled={hud?.spelled ?? []} zoneGlow={hud?.zoneGlow ?? null} />
+            <Staff spelled={hud?.spelled ?? []} zone={hud?.zone ?? 'zentrum'} frame={rahmen} />
             <div className="staff-caption">
               {hud
                 ? `${hud.degree} · ${hud.chordName} · Zone: ${hud.zone.toUpperCase()}` +
@@ -131,7 +135,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
 
         {/* Topographie-Karte */}
         <div className="topo-wrap">
-          <Topography rootMidi={rootMidi} />
+          <Topography notes={griffMulde} anchor={setup.anchor} tonic={key.tonic} />
         </div>
       </main>
 

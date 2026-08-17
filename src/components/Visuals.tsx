@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { SpelledNote, Zone } from '@/lib/staff';
-import { staffY, TOP_LINE, BOTTOM_LINE } from '@/lib/staff';
+import {
+  BOTTOM_LINE, TOP_LINE, ZONE_SHIFT, staffLayout, topographyRange, zoneOf,
+} from '@/lib/staff';
 import type { Feedback } from '@/lib/engine';
 import type { ClockRef } from '@/lib/engine';
 
@@ -19,69 +21,73 @@ export const COLORS = {
 
 // ── Notensystem mit Zonen (Übung 2) ─────────────────────────────────────────
 
-export function Staff({ spelled, zoneGlow }: { spelled: SpelledNote[]; zoneGlow: Zone | null }) {
-  const W = 640, H = 240;
-  const lineGap = 18;
-  const topLineY = 100;
-  const zoneY = {
-    zenit: { y: topLineY - 4.5 * lineGap, h: 4 * lineGap },
-    zentrum: { y: topLineY - 0.5 * lineGap, h: 5 * lineGap },
-    nadir: { y: topLineY + 4.5 * lineGap, h: 4 * lineGap },
-  };
+export function Staff({ spelled, zone, frame }: {
+  spelled: SpelledNote[];
+  zone: Zone;
+  frame: { lo: number; hi: number };
+}) {
+  // Die Zonenbänder folgen dem unverschobenen Block: dieselbe Griffmulde, dreimal
+  // um je eine Oktave versetzt (R12.4). `zone` sagt, wo der gezeichnete Block steht.
+  const shift = ZONE_SHIFT[zone];
+  const base = spelled.length > 0
+    ? { lo: Math.min(...spelled.map((n) => n.diatonic)) - 7 * shift,
+        hi: Math.max(...spelled.map((n) => n.diatonic)) - 7 * shift }
+    : { lo: frame.lo, hi: frame.lo + 4 }; // solange kein Ziel steht: Tonika-Dreiklang
+  const L = staffLayout(base, frame);
   const zoneLabel: Record<Zone, string> = { zenit: 'ZENIT', zentrum: 'ZENTRUM', nadir: 'NADIR' };
 
-  // Hilfslinien durch Notenköpfe außerhalb des Systems
+  // Hilfslinien durch Notenköpfe außerhalb des Systems – `zoneOf` beschreibt hier
+  // die einzelne Note, nicht den Block (B-10 AK 3).
   const ledger: number[] = [];
   spelled.forEach((n) => {
-    const d = n.diatonic;
-    for (let l = TOP_LINE + 2; l <= d; l += 2) ledger.push(l);
-    for (let l = BOTTOM_LINE - 2; l >= d; l -= 2) ledger.push(l);
+    if (zoneOf(n.diatonic) === 'zentrum') return;
+    for (let l = TOP_LINE + 2; l <= n.diatonic; l += 2) ledger.push(l);
+    for (let l = BOTTOM_LINE - 2; l >= n.diatonic; l -= 2) ledger.push(l);
   });
 
   const x0 = 300; // Block-Position
   const noteX = (i: number) => x0 + i * 2 - 2;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 240 }}>
-      {/* Zonen */}
-      {(Object.keys(zoneY) as Zone[]).map((z) => (
+    <svg viewBox={`0 0 ${L.width} ${L.height}`} className="w-full" style={{ maxHeight: 240 }}>
+      {/* Zonen – die Zielzone leuchtet, und genau dort steht der Block (B-10) */}
+      {(Object.keys(L.zones) as Zone[]).map((z) => (
         <g key={z}>
           <rect
-            x={60} y={zoneY[z].y} width={W - 120} height={zoneY[z].h}
-            fill={zoneGlow === z ? COLORS.amber : '#ffffff'}
-            opacity={zoneGlow === z ? 0.14 : z === 'zentrum' ? 0.045 : 0.025}
+            x={60} y={L.zones[z].y} width={L.width - 120} height={L.zones[z].h}
+            fill={zone === z ? COLORS.amber : '#ffffff'}
+            opacity={zone === z ? 0.14 : 0.03}
             rx={4}
             style={{ transition: 'opacity 200ms, fill 200ms' }}
           />
-          <text x={70} y={zoneY[z].y + 14} fontSize={10} fill={zoneGlow === z ? COLORS.amber : COLORS.dim}
+          <text x={70} y={L.zones[z].y + 14} fontSize={10} fill={zone === z ? COLORS.amber : COLORS.dim}
             opacity={0.9} fontFamily="Oswald, sans-serif" letterSpacing={3}>
             {zoneLabel[z]}
           </text>
         </g>
       ))}
       {/* 5 Linien */}
-      {[0, 1, 2, 3, 4].map((i) => (
-        <line key={i} x1={60} x2={W - 60} y1={topLineY + i * lineGap} y2={topLineY + i * lineGap}
-          stroke={COLORS.line} strokeWidth={1.5} />
+      {L.lines.map((y, i) => (
+        <line key={i} x1={60} x2={L.width - 60} y1={y} y2={y} stroke={COLORS.line} strokeWidth={1.5} />
       ))}
       {/* Hilfslinien */}
       {[...new Set(ledger)].map((d) => (
-        <line key={d} x1={x0 - 26} x2={x0 + 30} y1={staffY(d, topLineY, lineGap)} y2={staffY(d, topLineY, lineGap)}
+        <line key={d} x1={x0 - 26} x2={x0 + 30} y1={L.y(d)} y2={L.y(d)}
           stroke={COLORS.line} strokeWidth={1.5} />
       ))}
       {/* Akkord-Block: Klammer + Notenköpfe */}
       {spelled.length > 0 && (
         <g>
           {(() => {
-            const ys = spelled.map((n) => staffY(n.diatonic, topLineY, lineGap));
-            const top = Math.min(...ys) - 16, bot = Math.max(...ys) + 16;
+            const ys = spelled.map((n) => L.y(n.diatonic));
+            const top = Math.min(...ys) - 12, bot = Math.max(...ys) + 12;
             return (
               <path d={`M ${x0 - 34} ${top} h 8 M ${x0 - 34} ${top} v ${bot - top} M ${x0 - 34} ${bot} h 8`}
                 stroke={COLORS.amber} strokeWidth={2.5} fill="none" />
             );
           })()}
           {spelled.map((n, i) => {
-            const y = staffY(n.diatonic, topLineY, lineGap);
+            const y = L.y(n.diatonic);
             // Sekunden seitlich versetzen (hier Terzen → keine Verschiebung nötig, aber robust)
             const x = noteX(i);
             return (
@@ -104,43 +110,68 @@ export function Staff({ spelled, zoneGlow }: { spelled: SpelledNote[]; zoneGlow:
 
 // ── Topographie-Karte: Inseln der schwarzen Tasten ──────────────────────────
 
-export function Topography({ rootMidi }: { rootMidi: number | null }) {
-  const W = 640, H = 64;
-  const octaves = 2;
-  const startMidi = 60; // C4
-  // Schwarze Tasten: Halbtöne 1,3 (2er) und 6,8,10 (3er)
-  const blackPc = [1, 3, 6, 8, 10];
-  const ridges: { x: number; group: number }[] = [];
-  for (let o = 0; o < octaves; o++) {
-    blackPc.forEach((pc, i) => {
-      const pos = o * 12 + pc + 0.5;
-      ridges.push({ x: (pos / (12 * octaves)) * W, group: i < 2 ? 2 : 3 });
-    });
+export function Topography({ notes, anchor, tonic }: { notes: number[]; anchor: number; tonic: number }) {
+  const W = 640, H = 74;
+  const { start, end } = topographyRange(anchor, tonic);
+  const span = end - start;
+  const x = (midi: number) => ((midi - start + 0.5) / span) * W;
+  const step = W / span;
+
+  // Inselgruppen: 2er (Cis–Dis) und 3er (Fis–Gis–Ais) je Oktave. Sie sind der
+  // eigentliche Inhalt der Karte – die Hand ertastet Gruppen, keine Einzeltasten (R1).
+  const islands: { from: number; to: number; keys: number[] }[] = [];
+  for (let c = start; c < end; c += 12) {
+    for (const keys of [[c + 1, c + 3], [c + 6, c + 8, c + 10]]) {
+      const drin = keys.filter((k) => k <= end);
+      if (drin.length > 0) islands.push({ from: drin[0], to: drin[drin.length - 1], keys: drin });
+    }
   }
-  const markerX = rootMidi !== null ? ((rootMidi - startMidi + 0.5) / (12 * octaves)) * W : null;
+  const ridgeW = Math.max(5, step * 0.6);
+  const baseY = H - 12;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 64 }}>
-      <line x1={0} x2={W} y1={H - 10} y2={H - 10} stroke={COLORS.line} strokeWidth={1.5} />
-      {ridges.map((r, i) => {
-        // Gruppen-Anfang markieren (2er/3er-Insel als Relief)
-        const isGroupStart = i % 5 === 0 || i % 5 === 2;
-        return (
-          <g key={i}>
-            <rect x={r.x - 7} y={14} width={14} height={H - 24} rx={4}
-              fill={isGroupStart ? '#2e343d' : '#272c33'} stroke={COLORS.line} strokeWidth={1} />
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 74 }}>
+      <line x1={0} x2={W} y1={baseY} y2={baseY} stroke={COLORS.line} strokeWidth={1.5} />
+      {islands.map((isle) => (
+        <g key={isle.from}>
+          {/* Sockel der Insel: macht 2er und 3er als Gruppen unterscheidbar */}
+          <rect
+            x={x(isle.from) - ridgeW / 2 - 3} y={8}
+            width={x(isle.to) - x(isle.from) + ridgeW + 6} height={baseY - 12}
+            rx={6} fill="#2b313a" stroke={COLORS.line} strokeWidth={1}
+          />
+          {isle.keys.map((k) => (
+            <rect key={k} x={x(k) - ridgeW / 2} y={12} width={ridgeW} height={baseY - 20}
+              rx={3} fill="#1c1f24" opacity={0.85} />
+          ))}
+        </g>
+      ))}
+      {/* Oktav-Orientierung: nur Text, keine Klaviatur (R1) */}
+      {Array.from({ length: Math.floor(span / 12) + 1 }, (_, i) => start + i * 12)
+        .filter((c) => c <= end)
+        .map((c) => (
+          <text key={c} x={x(c)} y={H - 1} fontSize={9} fill={COLORS.dim} textAnchor="middle"
+            fontFamily="Oswald, sans-serif">
+            {`C${c / 12 - 1}`}
+          </text>
+        ))}
+      {/* Die ganze Griffmulde, der Grundton hervorgehoben (Konzept §4.3) */}
+      {notes.map((midi, i) => {
+        if (midi < start || midi > end) return null;
+        const cx = x(midi);
+        const istGrundton = i === 0;
+        return istGrundton ? (
+          <g key={midi} className="topo-marker">
+            <circle cx={cx} cy={baseY - 8} r={7} fill={COLORS.amber} opacity={0.35}>
+              <animate attributeName="r" values="7;13;7" dur="1.2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.35;0.08;0.35" dur="1.2s" repeatCount="indefinite" />
+            </circle>
+            <circle cx={cx} cy={baseY - 8} r={5} fill={COLORS.amber} />
           </g>
+        ) : (
+          <circle key={midi} cx={cx} cy={baseY - 8} r={3.5} fill={COLORS.amber} opacity={0.55} />
         );
       })}
-      {markerX !== null && markerX >= 0 && markerX <= W && (
-        <g className="topo-marker">
-          <circle cx={markerX} cy={H - 18} r={7} fill={COLORS.amber} opacity={0.35}>
-            <animate attributeName="r" values="7;13;7" dur="1.2s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.35;0.08;0.35" dur="1.2s" repeatCount="indefinite" />
-          </circle>
-          <circle cx={markerX} cy={H - 18} r={4} fill={COLORS.amber} />
-        </g>
-      )}
     </svg>
   );
 }

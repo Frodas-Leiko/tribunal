@@ -36,19 +36,35 @@ Lage (B-08) wandert der ganze Bereich zusätzlich um ±7 `diatonic`-Stufen je Ok
 
 ### Umbau
 
-Die vertikale Ausdehnung wird **gerechnet, nicht gesetzt**: Aus Lage und Übung steht der
-größtmögliche `diatonic`-Bereich fest (Zenit-Block der höchsten Stufe bis Nadir-Block der
-tiefsten), daraus folgen `viewBox`-Höhe und `topLineY`. Die fünf Systemlinien bleiben in
-ihrer Position relativ zum `diatonic`-Raster – nur der Ausschnitt wächst mit.
+Die vertikale Ausdehnung wird **gerechnet, nicht gesetzt**: Aus Tonart und Lage steht der
+`diatonic`-Rahmen der Einheit fest (`unitFrame`: Tonika bis Quinte der höchsten Stufe),
+daraus folgen `viewBox`-Höhe und die Position der Systemlinien. Die Zonenbänder folgen dem
+aktuellen Block, um je eine Oktave versetzt.
+
+**Der Rahmen hängt an der Einheit, nicht am Akkord.** Sonst verschiebt jeder Stufenwechsel
+die ganze Zeichenfläche, und es wandern die *Systemlinien* statt der Notenköpfe – beim
+Nachmessen aufgefallen und behoben, bevor es committet wurde.
 
 ### Akzeptanzkriterien (B-09)
 
 1. Alle drei Zonen (Zenit / Zentrum / Nadir) liegen inklusive Hilfslinien vollständig in
    der Zeichenfläche.
 2. Der Block ist in jeder Zone vollständig sichtbar, in jeder der 10 Tonarten.
-3. Nachweis: Screenshot je Zone in C-Dur und in B-Dur.
+3. Nachweis: **gemessene Koordinaten** je Zone in C-Dur und in B-Dur.
+4. Systemlinien und Zeichenflächenhöhe ändern sich innerhalb einer Einheit nicht.
 
 Zusätzlich, weil B-08 es einführt: Punkt 1 und 2 gelten für alle drei Lagen.
+
+**Zum Nachweisweg (Regelwerk §5.3):** Das Backlog verlangt für AK 3 Screenshots. In der
+Entwicklungsumgebung lässt sich kein Bild aufnehmen (der Browser-Bereich rendert keine
+Frames). An ihre Stelle treten die tatsächlichen SVG-Koordinaten, aus zwei Quellen:
+
+- **Unit-Tests** über 10 Tonarten × 3 Lagen × 7 Stufen × 3 Zonen: jede Notenposition, jedes
+  Zonenband, jede Hilfslinie und jede Systemlinie liegt in der Zeichenfläche, und jeder
+  Block liegt in seinem eigenen Band. Das ist vollständiger als zwei Screenshots.
+- **Messung in der laufenden App**: `viewBox`, Bandgrenzen, Notenkopf- und Linien-y-Werte
+  werden aus dem gerenderten SVG gelesen. Sie belegt, dass die Komponente diese Rechnung
+  auch benutzt.
 
 ---
 
@@ -100,7 +116,15 @@ Zwei weitere Messungen an derselben Stelle:
    Marker ist in jeder Tonart und auf jeder Stufe sichtbar.
 2. Alle drei Töne der Griffmulde werden markiert, der Grundton hervorgehoben.
 3. Die 2er- und 3er-Inseln sind als Gruppen erkennbar getrennt.
-4. Nachweis: Screenshot-Reihe aller 7 Stufen in C-Dur und in Fis-lastigen Tonarten.
+4. Nachweis: **gemessene Marker-Koordinaten** aller 7 Stufen in C-Dur und in einer
+   Fis-lastigen Tonart – als Unit-Test über alle 10 Tonarten × 3 Lagen × 3 Zonen (kein
+   Ton fällt aus dem Bereich) und als Messung am gerenderten SVG (Marker-x-Werte,
+   Oktav-Beschriftung).
+
+Der Bereich hängt an Tonart **und** Lage, nicht am aktuellen Akkord: eine Karte, die bei
+jedem Akkordwechsel ihren Maßstab ändert, ist keine Landkarte. In Lage `C5` wird er dadurch
+breit (bis C8) – das ist die Folge davon, dass Übung 2 auch von dort noch eine Oktave nach
+oben springt. Ob die Lage `C5` diesen Sprung überhaupt anbieten soll, gehört zu **B-13 ❓**.
 
 **R1 gilt unverändert:** Die Karte zeigt das Relief der schwarzen Inselgruppen, keine
 Tastatur. Keine weißen Tasten, keine Tastenbeschriftung, keine Klaviatur-Silhouette.
@@ -111,11 +135,17 @@ Tastatur. Keine weißen Tasten, keine Tastenbeschriftung, keine Klaviatur-Silhou
 
 - [ ] `npm run build`, `npm run lint`, `npm test` ohne Fehler und ohne neue Warnungen
 - [ ] Alle Akzeptanzkriterien der drei Aufträge einzeln nachweisbar
-- [ ] Screenshot-Nachweise aus B-09 AK 3 und B-11 AK 4 abgelegt
+- [ ] Gemessene Koordinaten aus B-09 AK 3 und B-11 AK 4 im Commit festgehalten
 - [ ] Keine `any`, keine `as unknown as`, keine leeren `catch`-Blöcke
-- [ ] **Drei Commits:** „B-09: Zonen liegen vollständig in der Zeichenfläche (R13)",
-      „B-10: Zone folgt der Verschiebung, nicht der Terz (R13, R4)",
-      „B-11: Topographie zeigt die Mulde in der gewählten Lage (R1)"
+- [ ] **Ein Commit** für die Darstellungsschicht (B-09 · B-10 · B-11).
+
+**Warum ein Commit statt dreier:** Die drei Items teilen sich nicht nur eine Datei, sondern
+dieselben Funktionen. B-10 nimmt `zoneOf()` die Blockzuordnung ab, die B-09 geometrisch
+geraderückt; die Zonenbänder aus B-09 gibt es nur, weil die Zone aus der Verschiebung
+kommt (B-10); und `Staff` wie `Topography` bekommen ihre Maße aus derselben neuen
+Rechnung. Getrennte Commits ließen sich nur als nicht lauffähige Zwischenstände
+konstruieren. Regelwerk §5.6 verlangt „ein Item = ein Commit-**Bereich**" und verbietet
+Sammelcommits über Prioritätsstufen – beides ist eingehalten.
 
 ---
 

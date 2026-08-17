@@ -14,7 +14,7 @@ import {
 } from './music';
 import { createSessionMachine, type SessionMachine, type SessionState } from './session-state';
 import {
-  REGISTER_TOLERANCE, registerHint, registerOffset, spellTriad, zoneOf,
+  REGISTER_TOLERANCE, ZONE_SHIFT, registerHint, registerOffset, spellTriad, zoneOfShift,
   type SpelledNote, type Zone,
 } from './staff';
 import {
@@ -47,11 +47,10 @@ export interface Hud {
   chordName: string;
   degree: string;
   spelled: SpelledNote[];
-  zone: Zone;
-  zoneGlow: Zone | null;
+  zone: Zone;                 // Zone des aktuellen Blocks: dort steht er, dort leuchtet es (B-10)
   nextName: string | null;    // Vorschau: nächster Akkord (schon vor dem Wechsel sichtbar)
   nextDegree: string | null;
-  nextZone: Zone | null;      // Übung 2: Ziel-Zone des nächsten Takts
+  nextZone: Zone | null;      // Übung 2: Zone des nächsten Schlags
   feedback: Feedback | null;
   streak: number;
   tempo: number;
@@ -64,6 +63,16 @@ export interface Hud {
 
 /** R22: Ein Banner verschwindet spätestens nach 4 Sekunden. */
 const BANNER_MS = 4000;
+
+/**
+ * Übung 2 (6/8): Auf dem geraden Schlag steht der Block im Zentrum, auf dem
+ * ungeraden eine Oktave versetzt in der Zielzone des Takts; die Zielzone wechselt
+ * taktweise zwischen Zenit und Nadir (R13, Konzept §4.4).
+ */
+function zoneForBeat(beat: number): Zone {
+  if (beat % 2 === 0) return 'zentrum';
+  return zoneOfShift(Math.floor(beat / 2) % 2 === 0 ? 1 : -1);
+}
 
 export interface ClockRef {
   segStartPerf: number;
@@ -373,10 +382,12 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
     if (!isBeat) return;
 
-    const barNum = config.exercise === 2 ? Math.floor(beatIndex / 2) : 0;
-    const targetZone: Zone = barNum % 2 === 0 ? 'zenit' : 'nadir';
-    const parity = config.exercise === 2 ? beatIndex % 2 : 0;
-    const shift = config.exercise === 2 ? (parity === 0 ? 0 : targetZone === 'zenit' ? 1 : -1) : 0;
+    // Übung 2: gerader Schlag im Zentrum, ungerader in der Zielzone des Takts; die
+    // Zielzone wechselt von Takt zu Takt. Zone und Verschiebung stammen damit aus
+    // **einer** Rechnung – Leuchten, Beschriftung und Notenbild können nicht mehr
+    // auseinanderlaufen (B-10, R4).
+    const zone = config.exercise === 2 ? zoneForBeat(beatIndex) : 'zentrum';
+    const shift = ZONE_SHIFT[zone];
 
     // Akkord nur bei neuem Beat-Index wechseln (Beat 1 in Übung 1, Taktbeginn in Übung 2)
     const advance = config.exercise === 1 ? beatIndex !== currentBeatRef.current
@@ -394,18 +405,15 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
     const cur = currentRef.current;
     const spelled = spellTriad(cur.chord, key, shift, config.anchor);
-    const zone = zoneOf(spelled[1].diatonic);
-    const zoneGlow: Zone | null = config.exercise === 2 ? (parity === 0 ? targetZone : 'zentrum') : null;
 
     setHud((h) => ({
       chordName: cur.chord.name,
       degree: cur.chord.degree,
       spelled,
       zone,
-      zoneGlow,
       nextName: upcomingRef.current?.name ?? null,
       nextDegree: upcomingRef.current?.degree ?? null,
-      nextZone: config.exercise === 2 ? (targetZone === 'zenit' ? 'nadir' : 'zenit') : null,
+      nextZone: config.exercise === 2 ? zoneForBeat(beatIndex + 1) : null,
       feedback: h?.feedback ?? null,
       streak: streakRef.current,
       tempo: tempoRef.current,
@@ -560,11 +568,10 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       chordName: first.name,
       degree: first.degree,
       spelled,
-      zone: zoneOf(spelled[1].diatonic),
-      zoneGlow: config.exercise === 2 ? 'zenit' : null,
+      zone: 'zentrum',   // Beat 0 steht immer im Zentrum (B-10)
       nextName: upcomingRef.current.name,
       nextDegree: upcomingRef.current.degree,
-      nextZone: config.exercise === 2 ? 'nadir' : null,
+      nextZone: config.exercise === 2 ? zoneForBeat(1) : null,
       feedback: {
         kind: 'info',
         big: `Starte mit ${first.name}`,
