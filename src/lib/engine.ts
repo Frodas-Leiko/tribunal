@@ -360,13 +360,18 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       const ctx = metro.context();
       perfOffsetRef.current = performance.now() - ctx.currentTime * 1000;
       const noteAudio = (t0 - perfOffsetRef.current) / 1000;
-      beatBaseRef.current = currentBeatRef.current;
 
       pausedRef.current = false;
       skipEvalBeatRef.current = currentBeatRef.current; // dieser Beat ist durch den Anschlag bereits bewertet
+      // Der Balken beginnt sichtbar neu: Segment 1, Cursor erst mit dem ersten Event.
+      clockRef.current = { ...clockRef.current, segInBeat: 0, active: false };
       const sched = new Scheduler(() => ctx, () => config.exercise === 1 ? (60 / tempoRef.current) / 4 : (60 / tempoRef.current) / 2, onEvent);
       schedRef.current = sched;
-      sched.start(noteAudio);
+      // R19: `noteAudio` liegt mindestens RESUME_WINDOW zurück. start() schiebt den
+      // Startzeitpunkt in ganzen Schritten vor und meldet die übersprungenen Schritte;
+      // die Beat-Nummerierung folgt um die darin enthaltenen ganzen Beats.
+      const skipped = sched.start(noteAudio);
+      beatBaseRef.current = currentBeatRef.current + Math.floor(skipped / subs);
 
       setHud((h) => h && ({
         ...h,
@@ -400,7 +405,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, onEvent, registerSuccess]);
+  }, [config.exercise, config.keyId, key, subs, onEvent, registerSuccess]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
