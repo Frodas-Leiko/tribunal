@@ -122,16 +122,9 @@ function triad(root: number, quality: 'dur' | 'moll' | 'dim', degree: string): C
   return { degree, name: `${pcName(root)}${suffix === '°' ? '°' : suffix}`, pcs: [root, (root + third) % 12, (root + fifth) % 12], quality };
 }
 
-// MIDI-Noten für einen Akkord nahe einer Referenz-Oktave (rechte Hand, Mitte C4=60)
-export function chordMidi(chord: ChordDef, octaveShift = 0): number[] {
-  const base = 60 + octaveShift * 12; // C4
-  return chord.pcs.map((pc) => {
-    let m = base + ((pc - 0 + 12) % 12);
-    while (m < base) m += 12;
-    while (m >= base + 12) m -= 12;
-    return m;
-  }).sort((a, b) => a - b);
-}
+// Die MIDI-Lage eines Akkords entsteht ausschließlich in `spellTriad()` (R12.1: genau
+// eine Lagen-Regel). Das frühere `chordMidi()` war eine zweite, ungenutzte Variante
+// („nächstliegende Lage ab C4") und ist mit B-07 entfallen.
 
 // ── Akkordfolgen-Datenbank ──────────────────────────────────────────────────
 
