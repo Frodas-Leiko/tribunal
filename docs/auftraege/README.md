@@ -7,7 +7,7 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 | Priorität | Pakete | Stand |
 |---|---|---|
 | **P0** · Hänger und Anzeigebrüche | 3 | abgeschlossen (B-01 … B-06, B-28 Setup) |
-| **P1** · Oktaven und Lage | 3 | in Arbeit |
+| **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
 
 ---
 
