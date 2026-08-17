@@ -13,7 +13,10 @@ import {
   type ChordDef, type DictateMode, PROGRESSIONS,
 } from './music';
 import { createSessionMachine, type SessionMachine, type SessionState } from './session-state';
-import { spellTriad, zoneOf, type SpelledNote, type Zone } from './staff';
+import {
+  REGISTER_TOLERANCE, registerHint, registerOffset, spellTriad, zoneOf,
+  type SpelledNote, type Zone,
+} from './staff';
 import {
   loadStats, recordAttempt, weaknessWeights, passTempo, PASS_STREAK, START_TEMPO,
   type StatsData,
@@ -287,16 +290,16 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       const noExtra = [...playedPcs].every((pc) => targetPcs.has(pc));
       pitchOk = allHit && noExtra;
 
+      // R13: Übung 2 prüft zusätzlich das Register – gegen die Anker-Oktave, gemessen
+      // am Grundton (B-12). Übung 1 prüft ausdrücklich keine Oktave.
       let registerOk = true;
       let registerMsg = '';
       if (config.exercise === 2 && pitchOk) {
-        const avgPlayed = notes.reduce((a, n) => a + n.midi, 0) / notes.length;
-        const avgTarget = spelled.reduce((a, s) => a + s.midi, 0) / spelled.length;
-        const d = avgPlayed - avgTarget;
-        if (Math.abs(d) >= 6) {
+        const d = registerOffset(notes.map((n) => n.midi), spelled[0].midi);
+        if (Math.abs(d) > REGISTER_TOLERANCE) {
           registerOk = false;
           direction = d > 0 ? 1 : -1;
-          registerMsg = d > 0 ? 'Hand: eine Oktave tiefer' : 'Hand: eine Oktave höher';
+          registerMsg = registerHint(d);
         }
       }
 
@@ -454,10 +457,8 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     let registerDelta = 0;
     if (allHit && noExtra && config.exercise === 2) {
       const spelled = spellTriad(cur.chord, key, cur.shift, config.anchor);
-      const avgPlayed = notes.reduce((a, n) => a + n.midi, 0) / notes.length;
-      const avgTarget = spelled.reduce((a, s) => a + s.midi, 0) / spelled.length;
-      registerDelta = avgPlayed - avgTarget;
-      registerOk = Math.abs(registerDelta) < 6;
+      registerDelta = registerOffset(notes.map((n) => n.midi), spelled[0].midi);
+      registerOk = Math.abs(registerDelta) <= REGISTER_TOLERANCE;
     }
 
     if (allHit && noExtra && registerOk) {
@@ -502,7 +503,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
         direction = registerDelta > 0 ? 1 : -1;
         feedback = {
           kind: 'wrong',
-          big: registerDelta > 0 ? 'Hand: eine Oktave tiefer' : 'Hand: eine Oktave höher',
+          big: registerHint(registerDelta),
           small: 'Richtiger Block, falsche Zone.',
           offsetMs: null,
         };

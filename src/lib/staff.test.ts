@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  ANCHORS, ANCHOR_DEFAULT, NATURAL_PC, anchorLabel, spellTriad, type SpelledNote,
+  ANCHORS, ANCHOR_DEFAULT, NATURAL_PC, REGISTER_TOLERANCE, anchorLabel, registerHint,
+  registerOffset, spellTriad, type SpelledNote,
 } from '@/lib/staff';
 import { KEYS, diatonicChords, getKey } from '@/lib/music';
 
@@ -102,6 +103,47 @@ describe('spellTriad · Buchstabierung (AK 3, AK 4)', () => {
     expect(fall('A-moll', 'V')).toBe('E5–Gis5–H5');    // Gis: schwarze Taste in einer Tonart ohne Vorzeichen
     expect(fall('E-moll', 'ii°')).toBe('Fis4–A4–C5');  // verminderter Dreiklang, Quinte ohne Vorzeichen
     expect(fall('G-moll', 'ii°')).toBe('A4–C5–Es5');   // verminderte Quinte als ♭
+  });
+});
+
+describe('Register-Prüfung (B-12, R13)', () => {
+  // Ziel: C-Dur in Lage C4, Grundton C4 = 60. Gespielt wird der ganze Block.
+  const ziel = 60;
+  const block = (root: number) => [root, root + 4, root + 7];
+
+  it('meldet keine Abweichung, wenn der Block in der Ziel-Oktave liegt', () => {
+    expect(registerOffset(block(60), ziel)).toBe(0);
+  });
+
+  it('misst am Grundton, nicht am Mittelwert (AK 1)', () => {
+    // Eine Oktave zu tief: der Mittelwert läge ebenfalls 12 daneben – entscheidend
+    // ist aber, dass die Zahl vom Grundton kommt und nicht von der Akkordart.
+    expect(registerOffset(block(48), ziel)).toBe(-12);
+    expect(registerOffset(block(72), ziel)).toBe(12);
+    // Verminderter Dreiklang: engere Spanne, gleiche Aussage über die Oktave.
+    expect(registerOffset([48, 51, 54], 48)).toBe(0);
+  });
+
+  it('nimmt bei mehreren gegriffenen Grundtönen den nächstliegenden', () => {
+    expect(registerOffset([48, 60, 72], ziel)).toBe(0);
+    expect(registerOffset([36, 48], ziel)).toBe(-12);
+  });
+
+  it('gibt ohne gespielten Grundton keine Richtung vor', () => {
+    expect(registerOffset([64, 67], ziel)).toBe(0);
+    expect(registerOffset([], ziel)).toBe(0);
+  });
+
+  it('zieht die Grenze zwischen richtiger Zone und Oktavfehler bei ±6 (AK 2)', () => {
+    expect(REGISTER_TOLERANCE).toBe(5);
+    expect(Math.abs(registerOffset(block(60), ziel))).toBeLessThanOrEqual(REGISTER_TOLERANCE);
+    expect(Math.abs(registerOffset(block(48), ziel))).toBeGreaterThan(REGISTER_TOLERANCE);
+  });
+
+  it('nennt Richtung und Größe als ausführbare Anweisung (R2)', () => {
+    expect(registerHint(-12)).toBe('Hand: eine Oktave höher');
+    expect(registerHint(12)).toBe('Hand: eine Oktave tiefer');
+    expect(registerHint(24)).toBe('Hand: 2 Oktaven tiefer');
   });
 });
 

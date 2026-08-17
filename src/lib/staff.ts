@@ -86,6 +86,38 @@ export function zoneOf(diatonic: number): Zone {
   return 'zentrum';
 }
 
+// ── Register (Übung 2, R13) ─────────────────────────────────────────────────
+
+/** Bis hierher gilt die Zone als getroffen; ab ±6 Halbtönen ist es ein Oktavfehler. */
+export const REGISTER_TOLERANCE = 5;
+
+/**
+ * Abweichung der gegriffenen Lage von der Ziel-Lage, gemessen am **Grundton**
+ * (R13, B-12): der gespielte Grundton, der dem Ziel am nächsten liegt, gegen den
+ * Grundton des Zielakkords. Ein Mittelwert über alle drei Töne wäre hier falsch –
+ * er hängt von der Akkordart ab und lässt sich in keine Anweisung übersetzen (R2).
+ *
+ * Ohne gespielten Grundton gibt es keine Aussage über die Oktave: dann 0. Der
+ * Aufrufer prüft das Register erst, wenn die Tonhöhenklassen bereits stimmen –
+ * der Grundton liegt dort immer vor.
+ */
+export function registerOffset(playedMidi: number[], targetRootMidi: number): number {
+  const rootPc = ((targetRootMidi % 12) + 12) % 12;
+  let best: number | null = null;
+  for (const m of playedMidi) {
+    if (((m % 12) + 12) % 12 !== rootPc) continue;
+    const d = m - targetRootMidi;
+    if (best === null || Math.abs(d) < Math.abs(best)) best = d;
+  }
+  return best ?? 0;
+}
+
+/** Große Zeile für einen Oktavfehler (R2: ausführbar, mit Richtung und Größe). */
+export function registerHint(offset: number): string {
+  const okt = Math.max(1, Math.round(Math.abs(offset) / 12));
+  return `Hand: ${okt === 1 ? 'eine Oktave' : `${okt} Oktaven`} ${offset > 0 ? 'tiefer' : 'höher'}`;
+}
+
 /** y-Position im SVG: Halbschritte in Linienabständen. lineGap = Abstand zweier Linien. */
 export function staffY(diatonic: number, topLineY: number, lineGap: number): number {
   return topLineY - (diatonic - TOP_LINE) * (lineGap / 2);

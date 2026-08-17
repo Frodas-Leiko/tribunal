@@ -187,14 +187,14 @@ export const TIMING_BRIEFS = {
   uebung1: {
     title: 'Steckbrief: Blind-Griff (16tel)',
     counting: 'Zählweise: „1 – e – und – a". Auf „1" steht der Klang. Auf „e – und – a" löst sich die Hand und formt in der Luft die nächste Griffmulde.',
-    measured: 'Gemessen wird pro Anschlag: Tonhöhe (alle drei Töne korrekt?) und Timing (Abweichung in Millisekunden von der Zählzeit „1").',
+    measured: 'Gemessen wird pro Anschlag: Tonhöhe (alle drei Töne korrekt?) und Timing (Abweichung in Millisekunden von der Zählzeit „1"). Die Oktave wird nicht geprüft – in welcher Lage du greifst, ist in Übung 1 frei.',
     tolerance: 'Toleranzfenster: ±50 ms (Anfänger), verschärfbar auf ±35 ms und ±20 ms.',
     tip: 'Die Hand verlässt die Tasten nach jedem Anschlag komplett. Wer „kleben bleibt", trainiert Suchen statt Mulden.',
   },
   uebung2: {
     title: 'Steckbrief: Systemsprung (6/8)',
     counting: 'Zählweise: „1 – 2" (zwei schwere Schläge pro Takt). Schlag 1: Akkord im Zentrum. Schlag 2: derselbe Block, eine Oktave versetzt in die Zielzone (Zenit oder Nadir).',
-    measured: 'Gemessen wird pro Block: Tonhöhe, korrektes Register (richtige Oktave = richtige Zone) und Timing auf beiden Schlägen.',
+    measured: 'Gemessen wird pro Block: Tonhöhe, korrektes Register (richtige Oktave = richtige Zone, gemessen am Grundton gegen die gewählte Lage) und Timing auf beiden Schlägen.',
     tolerance: 'Toleranzfenster wie Übung 1 (±50 ms Standard).',
     tip: 'Lies „Block + Zone", nicht Einzelnoten. Die Handform bleibt beim Sprung identisch – nur der Ort wechselt.',
   },
