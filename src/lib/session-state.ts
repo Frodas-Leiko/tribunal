@@ -17,6 +17,10 @@ export interface SessionResources {
   clearResumeTimer(): void;
   clearNotes(): void;
   stopClock(): void;
+  /** R22: Banner samt Lebensdauer-Timer – kein Bildschirmzustand überlebt einen Wechsel. */
+  clearBanner(): void;
+  /** R22: nur beim Eintritt in RUNNING – veraltetes Feedback wird verworfen (B-06 AK 3). */
+  dropFeedback(): void;
 }
 
 /**
@@ -59,6 +63,10 @@ export function createSessionMachine(res: SessionResources): SessionMachine {
       res.clearResumeTimer();
       res.clearNotes();
       res.stopClock();
+      res.clearBanner();
+      // Nur hier, nicht in der allgemeinen Aufräumung: der Hinweis, der zur Pause
+      // geführt hat, muss die Pause überleben – der Wiedereinstieg räumt ihn ab.
+      if (next === 'RUNNING') res.dropFeedback();
       state = next;
       return true;
     },

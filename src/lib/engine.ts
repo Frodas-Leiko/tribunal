@@ -58,6 +58,9 @@ export interface Hud {
   state: SessionState;   // die Anzeige leitet sich aus dem Zustand ab, nicht aus der Feedback-Art
 }
 
+/** R22: Ein Banner verschwindet spätestens nach 4 Sekunden. */
+const BANNER_MS = 4000;
+
 export interface ClockRef {
   segStartPerf: number;
   segDur: number;
@@ -93,6 +96,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const upDownRef = useRef(0);
   const clockRef = useRef<ClockRef>({ segStartPerf: 0, segDur: 0.2, segInBeat: 0, subs: 4, active: false, beatStartPerf: 0, beatDur: 0.5 });
   const evalTimersRef = useRef<number[]>([]);
+  const bannerTimerRef = useRef<number | null>(null);
   const onPassRef = useRef(onPass);
   onPassRef.current = onPass;
 
@@ -125,6 +129,16 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       stopClock: () => {
         // Die Uhr steht; der Balken beginnt beim nächsten Start sichtbar neu (R19).
         clockRef.current = { ...clockRef.current, active: false, segInBeat: 0 };
+      },
+      clearBanner: () => {
+        if (bannerTimerRef.current !== null) {
+          window.clearTimeout(bannerTimerRef.current);
+          bannerTimerRef.current = null;
+        }
+        setHud((h) => (h && h.banner !== null ? { ...h, banner: null } : h));
+      },
+      dropFeedback: () => {
+        setHud((h) => (h && h.feedback !== null ? { ...h, feedback: null } : h));
       },
     });
     machineRef.current = machine;
@@ -193,6 +207,26 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     onPassRef.current();
     return banner;
   }, [config.source, config.mode, config.levelTempo, config.keyId]);
+
+  // ── Banner-Lebensdauer (R22) ──────────────────────────────────────────────
+  // Ein Banner verschwindet von selbst – der „Weiter"-Button ist Zugabe, nicht
+  // Voraussetzung. Sonst bliebe mitten in der Einheit ein Zustand stehen, den nur
+  // ein Tippen auflöst (R6).
+  const armBannerTimeout = useCallback(() => {
+    if (bannerTimerRef.current !== null) window.clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = window.setTimeout(() => {
+      bannerTimerRef.current = null;
+      setHud((h) => (h && h.banner !== null ? { ...h, banner: null } : h));
+    }, BANNER_MS);
+  }, []);
+
+  const clearBanner = useCallback(() => {
+    if (bannerTimerRef.current !== null) {
+      window.clearTimeout(bannerTimerRef.current);
+      bannerTimerRef.current = null;
+    }
+    setHud((h) => (h && h.banner !== null ? { ...h, banner: null } : h));
+  }, []);
 
   // ── Pausieren (bei Fehler im Stopp-Modus) ─────────────────────────────────
   const pauseSession = useCallback(() => {
@@ -301,6 +335,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       banner: banner ?? h.banner,
       chordIndex: beatIndex,
     }));
+    if (banner) armBannerTimeout();
 
     metroRef.current?.signal(success);
 
@@ -310,7 +345,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     if (halts && config.errorMode === 'stop') pauseSession();
     };
     judge();
-  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, beatDurMs, getMachine, registerSuccess, pauseSession]);
+  }, [config.exercise, config.keyId, config.tolerance, config.errorMode, key, beatDurMs, getMachine, registerSuccess, pauseSession, armBannerTimeout]);
 
   // ── Beat-Scheduling ───────────────────────────────────────────────────────
   const onEvent = useCallback((ev: { time: number; index: number }) => {
@@ -452,8 +487,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
         state: machine.state,
         feedback: { kind: 'ok', big: 'Richtig – Uhr läuft', small: 'Der Takt folgt deinem Anschlag.', offsetMs: null },
         streak: streakRef.current,
-        banner: banner ?? h.banner,
+        banner,
       }));
+      if (banner) armBannerTimeout();
       metro.signal(true);
     } else {
       // Weiter pausiert: genau ein Hinweis als Korrekturhilfe (R2, R3)
@@ -479,7 +515,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       streakRef.current = 0;
       metro.signal(false);
     }
-  }, [config.exercise, config.keyId, key, subs, segDurSec, getMachine, onEvent, registerSuccess]);
+  }, [config.exercise, config.keyId, key, subs, segDurSec, getMachine, onEvent, registerSuccess, armBannerTimeout]);
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
@@ -569,6 +605,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     // In IDLE und ENDED nimmt die Session keine Eingabe an (R17-Tabelle).
     const machine = getMachine();
     if (machine.state === 'IDLE' || machine.state === 'ENDED') return;
+    clearBanner(); // R22: der nächste Anschlag räumt den Banner ab
     notesRef.current.push(ev);
     if (notesRef.current.length > 64) notesRef.current = notesRef.current.slice(-64);
     if (machine.state === 'RUNNING') return; // im Takt bewertet der Beat, nicht die Stille
@@ -582,9 +619,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       resumeTimerRef.current = null;
       closeAttempt();
     }, wait);
-  }, [getMachine, beatDurMs, closeAttempt]);
-
-  const clearBanner = useCallback(() => setHud((h) => h && ({ ...h, banner: null })), []);
+  }, [getMachine, beatDurMs, closeAttempt, clearBanner]);
 
   return { hud, start, stop, handleNote, clockRef, clearBanner };
 }

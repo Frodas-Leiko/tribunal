@@ -6,13 +6,16 @@ import { createSessionMachine, type SessionState } from '@/lib/session-state';
 
 /** Zählt „laufende" Ressourcen, wie sie ein Übergang zurücksetzen muss. */
 function makeResources() {
-  const live = { scheduler: false, evalTimers: 0, resumeTimer: false, notes: 0, clock: false };
+  const live = { scheduler: false, evalTimers: 0, resumeTimer: false, notes: 0, clock: false, banner: false };
+  let feedbackDropped = 0;
   const res = {
     stopScheduler: () => { live.scheduler = false; },
     clearEvalTimers: () => { live.evalTimers = 0; },
     clearResumeTimer: () => { live.resumeTimer = false; },
     clearNotes: () => { live.notes = 0; },
     stopClock: () => { live.clock = false; },
+    clearBanner: () => { live.banner = false; },
+    dropFeedback: () => { feedbackDropped += 1; },
   };
   const runAll = () => {
     live.scheduler = true;
@@ -20,12 +23,15 @@ function makeResources() {
     live.resumeTimer = true;
     live.notes = 5;
     live.clock = true;
+    live.banner = true;
   };
-  return { live, res, runAll };
+  return { live, res, runAll, drops: () => feedbackDropped };
 }
 
 const ALL_STATES: SessionState[] = ['IDLE', 'ARMED', 'RUNNING', 'PAUSED', 'ENDED'];
-const NOTHING_LIVE = { scheduler: false, evalTimers: 0, resumeTimer: false, notes: 0, clock: false };
+const NOTHING_LIVE = {
+  scheduler: false, evalTimers: 0, resumeTimer: false, notes: 0, clock: false, banner: false,
+};
 
 describe('createSessionMachine', () => {
   it('startet in IDLE', () => {
@@ -54,12 +60,28 @@ describe('createSessionMachine', () => {
   });
 
   it('weist einen unerlaubten Übergang ab, ohne etwas anzufassen', () => {
-    const { live, res, runAll } = makeResources();
+    const { live, res, runAll, drops } = makeResources();
     const m = createSessionMachine(res);
     runAll();
     expect(m.to('RUNNING')).toBe(false); // IDLE → RUNNING gibt es nicht
     expect(m.state).toBe('IDLE');
-    expect(live).toEqual({ scheduler: true, evalTimers: 3, resumeTimer: true, notes: 5, clock: true });
+    expect(live).toEqual({
+      scheduler: true, evalTimers: 3, resumeTimer: true, notes: 5, clock: true, banner: true,
+    });
+    expect(drops()).toBe(0);
+  });
+
+  it('verwirft veraltetes Feedback nur beim Eintritt in RUNNING (B-06 AK 3)', () => {
+    const { res, drops } = makeResources();
+    const m = createSessionMachine(res);
+    m.to('ARMED');
+    expect(drops()).toBe(0);   // der Hinweis muss ARMED und PAUSED überleben
+    m.to('RUNNING');
+    expect(drops()).toBe(1);
+    m.to('PAUSED');
+    expect(drops()).toBe(1);
+    m.to('RUNNING');
+    expect(drops()).toBe(2);
   });
 
   it('räumt bei jedem ausgeführten Übergang alle Ressourcen auf', () => {

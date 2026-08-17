@@ -180,13 +180,16 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .staff-caption { text-align: center; color: var(--dim); font-size: 13px; padding-bottom: 4px; }
 .topo-wrap { opacity: 0.95; }
 
+/* R22/R6: Der Banner liegt unterhalb der Tribunal-Zeile und fängt keine Eingabe ab –
+   nur der optionale „Weiter"-Knopf ist anklickbar. Er verschwindet von selbst. */
 .banner {
   position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
   background: var(--panel); border: 1.5px solid var(--green); border-radius: 10px;
   padding: 14px 22px; display: flex; gap: 18px; align-items: center;
   font-size: 17px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); z-index: 20;
+  pointer-events: none;
 }
-.banner button { background: var(--green); color: #1c1f24; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+.banner button { background: var(--green); color: #1c1f24; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-weight: 600; pointer-events: auto; }
 
 /* ── Steckbrief ── */
 .brief-backdrop {
