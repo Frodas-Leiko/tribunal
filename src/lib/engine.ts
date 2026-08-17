@@ -67,7 +67,9 @@ const EVAL_DELAY = 170;
 const WINDOW = 170;
 const RESUME_WINDOW = 260; // ms Fenster um den Wiedereinstiegs-Anschlag
 
-export function useSession(config: SessionConfig, onPass: () => void) {
+// `audio` entsteht in der Nutzergeste von „Einheit starten" (R18) und wird von
+// dort durchgereicht – die Engine öffnet selbst nie einen Kontext.
+export function useSession(config: SessionConfig, onPass: () => void, audio: AudioContext) {
   const [hud, setHud] = useState<Hud | null>(null);
 
   const metroRef = useRef<Metronome | null>(null);
@@ -355,7 +357,7 @@ export function useSession(config: SessionConfig, onPass: () => void) {
       statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, true, 0, null);
 
       // Uhr kalibrieren: der Anschlag IST der Beat
-      const ctx = (metro as unknown as { ensure: () => AudioContext }).ensure();
+      const ctx = metro.context();
       perfOffsetRef.current = performance.now() - ctx.currentTime * 1000;
       const noteAudio = (t0 - perfOffsetRef.current) / 1000;
       beatBaseRef.current = currentBeatRef.current;
@@ -402,9 +404,11 @@ export function useSession(config: SessionConfig, onPass: () => void) {
 
   // ── Start: Sequenz aufbauen, erster Akkord wartet auf den Anschlag ───────
   const start = useCallback((initialTempo: number) => {
-    const metro = new Metronome();
+    // Kein eigener Kontext (R18): `audio` ist in der Nutzergeste entstanden. Ein
+    // zweiter start() – etwa der Doppelstart unter StrictMode – hängt sich an
+    // denselben Kontext, statt einen weiteren zu öffnen.
+    const metro = new Metronome(audio);
     metroRef.current = metro;
-    (metro as unknown as { ensure: () => AudioContext }).ensure(); // Nutzer-Geste: AudioContext entsperren
     tempoRef.current = initialTempo;
 
     if (config.source === 'progression') {
@@ -457,7 +461,7 @@ export function useSession(config: SessionConfig, onPass: () => void) {
     });
 
     void requestWakeLock();
-  }, [config, key, nextChord]);
+  }, [config, key, nextChord, audio]);
 
   const stop = useCallback(() => {
     schedRef.current?.stop();
@@ -470,6 +474,7 @@ export function useSession(config: SessionConfig, onPass: () => void) {
     }
     clockRef.current.active = false;
     pausedRef.current = true;
+    metroRef.current = null; // R18/AK 4: kein Metronom überlebt einen Stopp
   }, []);
 
   useEffect(() => stop, [stop]);

@@ -1,25 +1,52 @@
 // ── Cockpit: Die laufende Übungseinheit ──────────────────────────────────────
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useSession } from '@/lib/engine';
 import type { SessionSetup } from './Home';
 import { useNoteInput, DEMO_HINT } from '@/lib/midi';
 import { getKey, PROGRESSIONS } from '@/lib/music';
 import { Staff, Topography, SubdivisionBar, Tribunal, COLORS } from '@/components/Visuals';
 
-export function Session({ setup, onExit, onProgressChanged }: {
+export function Session({ setup, audio, onExit, onProgressChanged }: {
   setup: SessionSetup;
+  audio: AudioContext;
   onExit: () => void;
   onProgressChanged: () => void;
 }) {
-  const { hud, start, stop, handleNote, clockRef, clearBanner } = useSession(setup, onProgressChanged);
+  const { hud, start, stop, handleNote, clockRef, clearBanner } = useSession(setup, onProgressChanged, audio);
   const input = useNoteInput(useCallback((ev) => handleNote(ev), [handleNote]));
 
-  useEffect(() => {
+  const [audioState, setAudioState] = useState<AudioContextState>(audio.state);
+  const startedRef = useRef(false);
+
+  // Die Einheit startet erst, wenn der Kontext wirklich läuft (R18/AK 2). Steht er
+  // noch auf `suspended`, wartet sie am sichtbaren Hinweis unten – nie stumm.
+  const armIfReady = useCallback(() => {
+    if (startedRef.current || audio.state !== 'running') return;
+    startedRef.current = true;
     start(setup.initialTempo);
-    return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [audio, start, setup.initialTempo]);
+
+  useEffect(() => {
+    const sync = () => {
+      setAudioState(audio.state);
+      armIfReady();
+    };
+    const onVisible = () => {
+      // R18: Rückkehr auf sichtbar – Kontext prüfen und fortsetzen, statt stehenzubleiben.
+      if (document.visibilityState === 'visible' && audio.state !== 'running') void audio.resume();
+      sync();
+    };
+    audio.addEventListener('statechange', sync);
+    document.addEventListener('visibilitychange', onVisible);
+    armIfReady(); // falls resume() schon vor dem Mount durchgelaufen ist
+    return () => {
+      audio.removeEventListener('statechange', sync);
+      document.removeEventListener('visibilitychange', onVisible);
+      stop();
+      startedRef.current = false; // StrictMode montiert doppelt: der zweite Lauf startet erneut
+    };
+  }, [audio, armIfReady, stop]);
 
   const key = getKey(setup.keyId);
   const progName = setup.source === 'progression'
@@ -50,6 +77,12 @@ export function Session({ setup, onExit, onProgressChanged }: {
           )}
         </div>
       </header>
+
+      {audioState !== 'running' && (
+        <button className="audio-blocked" onClick={() => { void audio.resume(); armIfReady(); }}>
+          Audio blockiert – zum Aktivieren tippen
+        </button>
+      )}
 
       {input.demoActive && <div className="demo-hint">{DEMO_HINT}</div>}
 

@@ -2,22 +2,33 @@
 
 export type ClickKind = 'beat' | 'sub';
 
-export class Metronome {
-  private ctx: AudioContext | null = null;
+/**
+ * Öffnet oder entsperrt den `AudioContext`. R18: ausschließlich im Callstack einer
+ * echten Nutzergeste aufrufen – nie aus einem `useEffect`, `setTimeout` oder
+ * MIDI-Callback. `existing` wird wiederverwendet, damit über mehrere Einheiten
+ * hinweg genau ein Kontext entsteht.
+ */
+export function openAudioContext(existing?: AudioContext | null): AudioContext {
+  const ctx = existing ?? new AudioContext();
+  if (ctx.state !== 'running') void ctx.resume();
+  return ctx;
+}
 
-  private ensure(): AudioContext {
-    if (!this.ctx) this.ctx = new AudioContext();
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
-    return this.ctx;
+export class Metronome {
+  private ctx: AudioContext;
+
+  /** Der Kontext kommt von außen (R18); das Metronom öffnet keinen eigenen. */
+  constructor(ctx: AudioContext) {
+    this.ctx = ctx;
   }
 
-  now(): number {
-    return this.ensure().currentTime;
+  context(): AudioContext {
+    return this.ctx;
   }
 
   /** Tiefen Sinus für die „1", hohen für Subdivisions – exakt auf `time` (AudioContext-Zeit). */
   click(time: number, kind: ClickKind, strong = false): void {
-    const ctx = this.ensure();
+    const ctx = this.ctx;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
@@ -34,7 +45,7 @@ export class Metronome {
 
   /** Kurzer Bestätigungston (grün) / Fehlerton (rot) – leise, funktional. */
   signal(ok: boolean): void {
-    const ctx = this.ensure();
+    const ctx = this.ctx;
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();

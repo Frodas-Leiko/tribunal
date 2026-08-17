@@ -13,9 +13,10 @@ export interface SessionSetup extends SessionConfig {
   initialTempo: number;
 }
 
-export function Home({ progress, onStart }: {
+export function Home({ progress, onStart, openAudio }: {
   progress: ProgressMap;
-  onStart: (s: SessionSetup) => void;
+  onStart: (s: SessionSetup, audio: AudioContext) => void;
+  openAudio: () => AudioContext;
 }) {
   const [selected, setSelected] = useState<KeyDef | null>(null);
   const [brief, setBrief] = useState<{ kind: 'key' | 'prog' | 'timing'; key?: KeyDef; progId?: string; ex?: 1 | 2 } | null>(null);
@@ -52,10 +53,14 @@ export function Home({ progress, onStart }: {
 
   const start = () => {
     if (!selected) return;
+    // R18: Der AudioContext entsteht genau hier – im Klick-Handler von
+    // „Einheit starten" – und wird an die Session durchgereicht. Später ist die
+    // Nutzergeste vorbei und der Kontext bliebe auf Tablets `suspended`.
+    const audio = openAudio();
     onStart({
       exercise, keyId: selected.id, source, mode, progressionId: progId,
       tolerance, errorMode, levelTempo, initialTempo: effectiveTempo,
-    });
+    }, audio);
   };
 
   return (
