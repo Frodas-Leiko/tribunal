@@ -1,6 +1,6 @@
 // ── Visuelle Kernmodule: Zonen-System, Topographie, Subdivisions, Tribunal ──
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SpelledNote, Zone } from '@/lib/staff';
 import {
   BOTTOM_LINE, TOP_LINE, ZONE_SHIFT, staffLayout, topographyRange, zoneOf,
@@ -272,5 +272,3 @@ export function Tribunal({ feedback }: { feedback: Feedback | null }) {
     </div>
   );
 }
-
-export const tribunalStyle: CSSProperties = {};
