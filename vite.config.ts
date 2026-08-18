@@ -7,6 +7,14 @@ import { inspectAttr } from 'kimi-plugin-inspect-react'
 export default defineConfig({
   base: './',
   plugins: [inspectAttr(), react()],
+  // B-33: Kennung dieses Builds. Sie wandert in die Registrierungsadresse des
+  // Service Workers (`sw.js?v=…`) und von dort in den Namen seines Caches – so
+  // bekommt jeder Build einen eigenen Cache, und der alte wird beim Aktivieren
+  // gelöscht. Ein Zeitstempel genügt: Er muss sich je Build unterscheiden, nicht
+  // den Inhalt beschreiben.
+  define: {
+    __BUILD_ID__: JSON.stringify(new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)),
+  },
   server: {
     port: 3000,
   },
