@@ -4,8 +4,11 @@ import type { ReactNode } from 'react';
 import { COLORS } from './Visuals';
 import { midiName, pcName, type KeyDef, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
 import { anchorLabel } from '@/lib/staff';
+import { useScrollLock } from './scroll-lock';
 
 export function BriefOverlay({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  // R6/B-22 AK 4: Solange das Panel offen ist, scrollt es – nicht die Seite darunter.
+  useScrollLock();
   return (
     <div className="brief-backdrop" onClick={onClose}>
       <div className="brief-panel" onClick={(e) => e.stopPropagation()}>

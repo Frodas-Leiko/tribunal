@@ -1,6 +1,6 @@
 // ── Stufenplan & Session-Setup ───────────────────────────────────────────────
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { KEYS, PROGRESSIONS, MODE_LABELS, unavailableReason, type KeyDef, type DictateMode } from '@/lib/music';
 import {
   getStand, isStageComplete, recommendedNext, stufenUnit, folgenUnit,
@@ -8,7 +8,9 @@ import {
 } from '@/lib/store';
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
 import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
+import { stufenketteText } from '@/lib/progression-view';
 import { COLORS } from '@/components/Visuals';
+import { FolgenAuswahl } from '@/components/FolgenAuswahl';
 import { BriefOverlay, KeyBrief, ProgressionBrief, TimingBrief } from '@/components/Steckbrief';
 
 export interface SessionSetup extends SessionConfig {
@@ -22,6 +24,7 @@ export function Home({ progress, onStart, openAudio }: {
 }) {
   const [selected, setSelected] = useState<KeyDef | null>(null);
   const [brief, setBrief] = useState<{ kind: 'key' | 'prog' | 'timing'; key?: KeyDef; progId?: string; ex?: 1 | 2 } | null>(null);
+  const [auswahlOffen, setAuswahlOffen] = useState(false);
 
   // Setup-Zustand
   const [exercise, setExercise] = useState<1 | 2>(1);
@@ -39,21 +42,16 @@ export function Home({ progress, onStart, openAudio }: {
 
   const stages = [1, 2, 3, 4, 5];
 
-  // B-20/B-21: Nicht jede Folge passt zu jeder Einheit – weil das Tongeschlecht im
-  // Datensatz nicht angeboten ist, weil eine Stufe in dieser Tonart nicht existiert
-  // (R16) oder weil die Folge für Übung 2 zu lang ist. Keine Sperre nach R11: Alle
-  // drei Fälle sind Unmöglichkeiten, und jeder nennt seinen Grund, statt zu
-  // verschwinden (AK 3).
-  const blockiert = useMemo(() => {
-    const map = new Map<string, string>();
-    if (!selected) return map;
-    for (const p of PROGRESSIONS) {
-      const grund = unavailableReason(selected, p, exercise);
-      if (grund) map.set(p.id, grund);
-    }
-    return map;
-  }, [selected, exercise]);
-  const progGrund = source === 'progression' ? blockiert.get(progId) ?? null : null;
+  // Die gewählte Folge und ihr Hindernis. B-20/B-21: Nicht jede Folge passt zu
+  // jeder Einheit – weil das Tongeschlecht im Datensatz nicht angeboten ist, weil
+  // eine Stufe in dieser Tonart nicht existiert (R16) oder weil die Folge für
+  // Übung 2 zu lang ist. Keine Sperre nach R11: Alle drei Fälle sind
+  // Unmöglichkeiten, und jeder nennt seinen Grund. Für die übrigen 31 Einträge
+  // rechnet die Auswahl selbst – sie zeigt sie ohnehin nur, wenn sie offen ist.
+  const gewaehlt = PROGRESSIONS.find((p) => p.id === progId)!;
+  const progGrund = selected && source === 'progression'
+    ? unavailableReason(selected, gewaehlt, exercise)
+    : null;
 
   // R11: Es gibt keine Sperre mehr – nur noch diesen Hinweis auf die nächste
   // Einheit. Er markiert, er verhindert nichts.
@@ -66,7 +64,8 @@ export function Home({ progress, onStart, openAudio }: {
     : null;
   // Tempo-Level aus dem Fortschritt; Slider kann darüber/darunter (freies Tempo).
   // Es kommt für alle Quellen aus dem Speicher – auch für Modus C (AK 4).
-  const levelTempo = unit ? getStand(progress, unit).tempo : START_TEMPO;
+  const stand = unit ? getStand(progress, unit) : { tempo: START_TEMPO, done: false };
+  const levelTempo = stand.tempo;
   const effectiveTempo = tempoOverride ?? levelTempo;
   // „Freies Tempo" heißt: der Regler steht bewusst neben dem Level (B-15 AK 3).
   const freiesTempo = tempoOverride !== null && tempoOverride !== levelTempo;
@@ -187,28 +186,21 @@ export function Home({ progress, onStart, openAudio }: {
           ) : (
             <div className="setup-row">
               <span className="setup-label">Folge</span>
-              <div className="setup-opts wrap">
-                {PROGRESSIONS.map((p) => {
-                  const st = getStand(progress, folgenUnit(selected.id, p.id));
-                  const grund = blockiert.get(p.id);
-                  return (
-                    <span key={p.id} className="prog-chip">
-                      <button
-                        className={progId === p.id ? 'active' : ''}
-                        onClick={() => chooseProg(p.id)}
-                        disabled={grund !== undefined}
-                        title={grund ?? ''}
-                      >
-                        {p.name}{' '}
-                        {/* AK 3: ausgegraut mit Begründung, nicht versteckt. */}
-                        {grund
-                          ? <em className="prog-unavailable">{grund}</em>
-                          : <em className={`prog-stand ${st.done ? 'done' : ''}`}>{st.done ? '✓' : st.tempo}</em>}
-                      </button>
-                      <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: p.id })}>ⓘ</button>
-                    </span>
-                  );
-                })}
+              {/* B-22: Die gewählte Folge steht hier mit allen fünf Angaben; die
+                  übrigen 31 liegen in der Auswahl – ein Tippen entfernt. */}
+              <div className="setup-opts">
+                <button className="prog-current active" onClick={() => setAuswahlOffen(true)}>
+                  <span className="prog-name">{gewaehlt.name}</span>
+                  <span className="prog-degrees">{stufenketteText(gewaehlt, selected.mode)}</span>
+                </button>
+                <span className="prog-flags">
+                  <em className={`prog-ue2 ${gewaehlt.uebung2 ? '' : 'off'}`}>{gewaehlt.uebung2 ? 'Ü2' : 'Ü2 –'}</em>
+                  <em className={`prog-stand ${stand.done ? 'done' : ''}`}>
+                    {stand.done ? `✓ ${TARGET_TEMPO} bpm` : `${stand.tempo} bpm`}
+                  </em>
+                </span>
+                <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: gewaehlt.id })}>ⓘ</button>
+                <button onClick={() => setAuswahlOffen(true)}>Auswahl · {PROGRESSIONS.length} Folgen</button>
               </div>
             </div>
           )}
@@ -274,6 +266,18 @@ export function Home({ progress, onStart, openAudio }: {
             Einheit starten · {effectiveTempo} bpm
           </button>
         </section>
+      )}
+
+      {auswahlOffen && selected && (
+        <FolgenAuswahl
+          keyDef={selected}
+          exercise={exercise}
+          progress={progress}
+          aktiv={progId}
+          onPick={(id) => { chooseProg(id); setAuswahlOffen(false); }}
+          onBrief={(id) => setBrief({ kind: 'prog', progId: id })}
+          onClose={() => setAuswahlOffen(false)}
+        />
       )}
 
       {brief?.kind === 'key' && brief.key && (
