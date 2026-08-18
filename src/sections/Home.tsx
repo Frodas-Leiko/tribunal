@@ -9,7 +9,7 @@ import {
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
 import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
 import { stufenketteText } from '@/lib/progression-view';
-import { COLORS } from '@/components/Visuals';
+import { COLORS } from '@/components/colors';
 import { FolgenAuswahl } from '@/components/FolgenAuswahl';
 import { BriefOverlay, KeyBrief, ProgressionBrief, TimingBrief } from '@/components/Steckbrief';
 

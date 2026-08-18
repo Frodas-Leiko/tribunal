@@ -128,8 +128,12 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
   const clockRef = useRef<ClockRef>({ segStartPerf: 0, segDur: 0.2, segInBeat: 0, subs: 4, active: false, beatStartPerf: 0, beatDur: 0.5 });
   const evalTimersRef = useRef<number[]>([]);
   const bannerTimerRef = useRef<number | null>(null);
+  // Der frische Callback wird gehalten, ohne Abhängigkeit einer der Callbacks zu
+  // werden. Die Zuweisung gehört in einen Effekt: Während des Renderns in eine Ref
+  // zu schreiben ist unzulässig, und gelesen wird sie ohnehin erst aus einem Timer
+  // (`onPassRef.current()` in der Auswertung), also lange nach dem Commit.
   const onPassRef = useRef(onPass);
-  onPassRef.current = onPass;
+  useEffect(() => { onPassRef.current = onPass; }, [onPass]);
 
   // R17: der einzige Ort, an dem der Zustand wechselt. Jeder Übergang räumt die
   // hier übergebenen Ressourcen auf – vollständig, ohne Ausnahme. Der Automat

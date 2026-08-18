@@ -1,7 +1,7 @@
 // ── Steckbrief-Dialoge: Tonarten, Akkordfolgen, Timing-Trainings ────────────
 
 import type { ReactNode } from 'react';
-import { COLORS } from './Visuals';
+import { COLORS } from './colors';
 import { midiName, pcName, type KeyDef, type Mode, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
 import { anchorLabel } from '@/lib/staff';
 import { useScrollLock } from './scroll-lock';

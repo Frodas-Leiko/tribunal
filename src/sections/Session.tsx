@@ -7,7 +7,8 @@ import { useNoteInput, DEMO_HINT } from '@/lib/midi';
 import { getKey, PROGRESSIONS } from '@/lib/music';
 import { unitFrame } from '@/lib/staff';
 import { PASS_STREAK } from '@/lib/store';
-import { Staff, Topography, SubdivisionBar, Tribunal, COLORS } from '@/components/Visuals';
+import { Staff, Topography, SubdivisionBar, Tribunal } from '@/components/Visuals';
+import { COLORS } from '@/components/colors';
 import { BriefOverlay, KeyBrief, ProgressionBrief } from '@/components/Steckbrief';
 
 export function Session({ setup, audio, onExit, onProgressChanged }: {

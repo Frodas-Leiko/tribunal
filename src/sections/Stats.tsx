@@ -6,7 +6,7 @@ import {
   type ChordError, type FingerKey, type LoadStatus, type SplitCount, type StatsData,
 } from '@/lib/store';
 import { FINGER_NAMES, INTERVAL_NAMES } from '@/lib/music';
-import { COLORS } from '@/components/Visuals';
+import { COLORS } from '@/components/colors';
 
 /** Namen der Datensätze, die beim Laden in diesem Zustand landeten. */
 function recordsWith(target: LoadStatus, progress: LoadStatus, stats: LoadStatus): string[] {

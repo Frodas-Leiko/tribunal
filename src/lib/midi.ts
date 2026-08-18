@@ -20,8 +20,11 @@ export const DEMO_HINT = 'A W S E D F T G Z H U J K  =  C Cis D Es E F Fis G As 
 export function useNoteInput(onNote: (ev: NoteEvent) => void) {
   const [source, setSource] = useState<InputSource>('none');
   const [midiName, setMidiName] = useState<string>('');
+  // Wie in `engine.ts`: die Ref hält den jeweils frischen Callback, damit weder der
+  // MIDI- noch der Demo-Effekt bei jedem neuen Callback neu aufgesetzt wird. Gelesen
+  // wird sie ausschließlich aus Event-Handlern, geschrieben deshalb im Effekt.
   const onNoteRef = useRef(onNote);
-  onNoteRef.current = onNote;
+  useEffect(() => { onNoteRef.current = onNote; }, [onNote]);
 
   useEffect(() => {
     let cancelled = false;

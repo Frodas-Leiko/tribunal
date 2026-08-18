@@ -7,17 +7,7 @@ import {
 } from '@/lib/staff';
 import type { Feedback } from '@/lib/engine';
 import type { ClockRef } from '@/lib/engine';
-
-export const COLORS = {
-  bg: '#1c1f24',
-  panel: '#23272e',
-  line: '#3a4048',
-  text: '#e8e6e1',
-  dim: '#9aa0a8',
-  amber: '#e8a33d',
-  green: '#3fce7a',
-  red: '#e5484d',
-};
+import { COLORS } from './colors';
 
 // ── Notensystem mit Zonen (Übung 2) ─────────────────────────────────────────
 
@@ -184,29 +174,40 @@ export function SubdivisionBar({ clockRef, offsets, tolerance, exercise }: {
   tolerance: number;
   exercise: 1 | 2;
 }) {
-  const [, force] = useState(0);
+  // Uhr und Cursorstand werden in der Bildschirmschleife gelesen und als Zustand
+  // gehalten; der Rumpf bleibt rein. Vorher standen `performance.now()` und
+  // `clockRef.current` mitten im Rendern – beides macht das Ergebnis vom Zeitpunkt
+  // des Renderns abhängig. Die Schleife erzwang ohnehin jeden Bildschirmrahmen ein
+  // neues Rendern; sie trägt den Messwert jetzt mit, statt einen Zähler hochzuzählen.
+  // Die Zeitdomäne bleibt dieselbe: die kalibrierte `performance.now`-Domäne aus R19,
+  // in Sekunden wie `ClockRef`.
+  const [cursor, setCursor] = useState({ active: false, segPos: 0, segInBeat: 0 });
   const rafRef = useRef(0);
 
   useEffect(() => {
     const loop = () => {
-      force((n) => n + 1);
+      const c = clockRef.current;
+      const nowSec = performance.now() / 1000;
+      setCursor({
+        active: c.active,
+        segPos: c.active && c.segDur > 0
+          ? Math.min(1.2, Math.max(0, (nowSec - c.segStartPerf) / c.segDur))
+          : 0,
+        segInBeat: c.segInBeat,
+      });
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+  }, [clockRef]);
 
-  const c = clockRef.current;
   const labels = exercise === 1 ? ['1', 'e', 'und', 'a'] : ['1', '·', '2'];
   const subs = exercise === 1 ? 4 : 3;
-
-  // Cursor läuft in der performance.now-Domäne (ClockRef ist bereits kalibriert).
-  const nowApprox = performance.now() / 1000;
-  const segPos = c.active && c.segDur > 0 ? Math.min(1.2, Math.max(0, (nowApprox - c.segStartPerf) / c.segDur)) : 0;
+  const { active, segPos, segInBeat } = cursor;
 
   const W = 640, H = 88;
   const segW = W / subs;
-  const beatProgress = (c.segInBeat + Math.min(1, segPos)) / subs;
+  const beatProgress = (segInBeat + Math.min(1, segPos)) / subs;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 88 }}>
@@ -217,9 +218,9 @@ export function SubdivisionBar({ clockRef, offsets, tolerance, exercise }: {
           <g key={i}>
             <rect x={i * segW + 2} y={10} width={segW - 4} height={isBeat ? 34 : 34} rx={4}
               fill={isBeat ? COLORS.amber : '#272c33'}
-              opacity={isBeat ? (c.segInBeat === 0 ? 0.95 : 0.55) : 1}
+              opacity={isBeat ? (segInBeat === 0 ? 0.95 : 0.55) : 1}
               stroke={COLORS.line} strokeWidth={1} />
-            {!isBeat && c.segInBeat === i && (
+            {!isBeat && segInBeat === i && (
               <rect x={i * segW + 2} y={10} width={(segW - 4) * Math.min(1, segPos)} height={34} rx={4}
                 fill={COLORS.amber} opacity={0.25} />
             )}
@@ -232,7 +233,7 @@ export function SubdivisionBar({ clockRef, offsets, tolerance, exercise }: {
         );
       })}
       {/* Cursor */}
-      {c.active && (
+      {active && (
         <line x1={beatProgress * W} x2={beatProgress * W} y1={4} y2={50}
           stroke={COLORS.amber} strokeWidth={2.5} />
       )}
