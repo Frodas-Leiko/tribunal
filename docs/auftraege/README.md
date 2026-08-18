@@ -9,6 +9,7 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 | **P0** · Hänger und Anzeigebrüche | 3 | abgeschlossen (B-01 … B-06, B-28 Setup) |
 | **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
 | **P2** · Level spielbar, Fortschritt korrekt | 3 | abgeschlossen (B-14 … B-18) |
+| **P3** · Inhalte: Folgen und Moll-Vokabular | 3 | geplant (B-19 … B-23) |
 
 ---
 
@@ -154,6 +155,57 @@ abnahmefähig (R25) – deshalb zuletzt.
   heutigen sechs; der Schlüssel `(Tonart, Folge)` trägt die späteren 32 unverändert.
 - **B-24/B-25** (P4) – das Statistik-Schema ändert sich dort erneut. In P2 wird nur die
   Version eingeführt, nicht deren künftiger Inhalt.
+
+---
+
+# P3 · Inhalte: Akkordfolgen und Moll-Vokabular
+
+**Items:** B-19 … B-23 · **Grundlage:** `docs/Akkordfolgen.md` (32 Folgen) · **Regeln:** R14, R15, R16
+
+| Paket | Datei | Items | Aufwand | Hauptdateien |
+|---|---|---|---|---|
+| **1** | `P3-1-moll-vokabular.md` | B-19 · B-21 | mittel | `src/lib/music.ts`, `src/lib/staff.ts`, `src/lib/engine.ts` |
+| **2** | `P3-2-32-folgen.md` | B-20 | mittel | `src/lib/music.ts`, `src/sections/Home.tsx` |
+| **3** | `P3-3-auswahl-und-steckbrief.md` | B-22 · B-23 | mittel | `src/sections/Home.tsx`, `src/components/Steckbrief.tsx`, `src/sections/Session.tsx` |
+
+## Warum dieser Schnitt
+
+**P3 hat eine einzige Fließrichtung: von der Stufenbezeichnung zum Klang und von dort auf
+den Bildschirm.** Der Schnitt folgt ihr – erst die Auflösung, dann die Daten, dann die
+Darstellung:
+
+**Paket 1 ist die Auflösung.** B-19 gibt Moll sein vollständiges Vokabular (`VII` ist der
+Dur-Dreiklang, `vii°` der Leittondreiklang, `v` existiert), B-21 macht die nicht
+auflösbare Stufe zu einem lauten Fehler. Die beiden gehören zusammen, weil sie dieselbe
+Naht bearbeiten: die Stelle, an der aus einem Bezeichner ein Akkord wird. Getrennt gebaut
+schriebe man diese Auflösung zweimal – und B-19 ohne B-21 ließe die stille Kürzung
+ausgerechnet in dem Moment stehen, in dem der Vorrat wächst.
+
+**Paket 2 sind die Daten.** B-20 überträgt die 32 Folgen aus `docs/Akkordfolgen.md`. Das
+ist ohne Paket 1 nicht abnahmefähig: Sieben der Folgen tragen im Datensatz die Markierung
+**R15** und sind in Moll bis dahin gar nicht auflösbar – sie würden nach R16 zu Recht als
+nicht verfügbar gelten. Das Paket fasst bewusst keine UI an; die Steckbrief-Texte
+entstehen hier trotzdem, weil sie Pflichtfelder von `ProgressionDef` sind.
+
+**Paket 3 ist die Darstellung.** B-22 und B-23 arbeiten an derselben Liste und an
+demselben Overlay: B-22 gruppiert die 32 Einträge und hängt an jeden das
+Steckbrief-Symbol, B-23 gibt diesem Symbol seinen zweiten Zugang aus der laufenden
+Einheit. Getrennt gebaut würde die Auswahlzeile zweimal umgeschrieben.
+
+## Nicht in P3
+
+- **Set B aus `docs/Akkordfolgen.md`** – Septakkorde, Zwischendominanten, Umkehrungen,
+  Neapolitaner. Diese Folgen brauchen Akkordtypen, die die App nicht kennt; eine Umsetzung
+  ist eine Regeländerung nach §7, kein Nebeneffekt dieser Pakete.
+- **B-32 ❓ (Editor für eigene Folgen)** – blockiert, bis die Entscheidung fällt. Der
+  Nutzen steigt laut Backlog erst, wenn B-19 und B-22 stehen; danach ist die Frage neu zu
+  stellen.
+- **B-31 ❓ (Notensystem auch in Übung 1)** – offen, betrifft die Anzeige der Einheit,
+  nicht die Folgen.
+- **Messqualität und Statistik** (B-24 … B-27, P4) – die finger-aufgelöste Historie nach
+  R27 und die Trennung von Griff- und Timing-Fehlern bleiben unberührt, obwohl die
+  korrigierte Buchstabierung aus B-19 die Heatmap-Schlüssel berührt (siehe Abgrenzung in
+  Paket 1).
 
 ---
 
