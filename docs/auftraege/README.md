@@ -1,6 +1,6 @@
 # Arbeitspakete
 
-**Stand:** 17.08.2026 · **Grundlage:** `docs/Backlog.md`, `docs/Regelwerk.md`
+**Stand:** 18.08.2026 · **Grundlage:** `docs/Backlog.md`, `docs/Regelwerk.md`
 
 Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem vorigen auf.
 
@@ -9,7 +9,8 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 | **P0** · Hänger und Anzeigebrüche | 3 | abgeschlossen (B-01 … B-06, B-28 Setup) |
 | **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
 | **P2** · Level spielbar, Fortschritt korrekt | 3 | abgeschlossen (B-14 … B-18) |
-| **P3** · Inhalte: Folgen und Moll-Vokabular | 3 | in Arbeit – Pakete 1 und 2 abgeschlossen (B-19 · B-21 · B-20) |
+| **P3** · Inhalte: Folgen und Moll-Vokabular | 3 | abgeschlossen (B-19 … B-23) |
+| **P4** · Konzepttreue, Messqualität, Aufräumen | 3 | offen (B-24 … B-27, B-29); **B-30/B-31/B-32 ❓** offen |
 
 ---
 
@@ -206,6 +207,57 @@ Einheit. Getrennt gebaut würde die Auswahlzeile zweimal umgeschrieben.
   R27 und die Trennung von Griff- und Timing-Fehlern bleiben unberührt, obwohl die
   korrigierte Buchstabierung aus B-19 die Heatmap-Schlüssel berührt (siehe Abgrenzung in
   Paket 1).
+
+---
+
+# P4 · Konzepttreue, Messqualität, Aufräumen
+
+**Items:** B-24 · B-25 · B-26 · B-27 · B-29 · **Regeln:** R26, R27, R2, R6, R7, §5
+
+| Paket | Datei | Items | Aufwand | Hauptdateien |
+|---|---|---|---|---|
+| **1** | `P4-1-messqualitaet.md` | B-24 · B-25 | mittel–groß | `src/lib/store.ts`, `src/lib/engine.ts`, `src/lib/music.ts`, `src/sections/Stats.tsx` |
+| **2** | `P4-2-anweisung-und-geraet.md` | B-26 · B-27 | klein–mittel | `src/lib/music.ts`, `src/lib/audio.ts`, `src/App.tsx`, `src/index.css` |
+| **3** | `P4-3-aufraeumen.md` | B-29 | mittel | `src/components/ui/*`, `src/pages/`, `package.json`, `src/components/Visuals.tsx` |
+
+**B-28** (Testrunner) gehört nummerisch zu P4, wurde aber nach P0 Paket 1 vorgezogen –
+ohne ihn war kein Musik-Item abnahmefähig (§5.4). Er ist erledigt.
+
+## Warum dieser Schnitt
+
+**P4 hat drei getrennte Gegenstände: die Akte, die Anweisung und das Verzeichnis.**
+Sie teilen keine Zeile Code, und der Schnitt folgt genau dieser Trennung:
+
+**Paket 1 ist die Akte.** B-24 und B-25 schreiben beide `recordAttempt()` um, beide
+ändern das Schema von `StatsData`, beide brauchen einen Migrationspfad nach R25, und
+beide zeigen ihr Ergebnis in `Stats.tsx`. Getrennt gebaut hieße: zweimal dasselbe
+Schema anfassen, zwei Migrationen schreiben, dieselbe Ansicht zweimal umbauen – genau
+der Fehler, den P2 Paket 2/3 vermieden hat. Zusätzlich hängen sie inhaltlich zusammen:
+B-25 löst die Fehler nach Fingern auf, und diese Auflösung ist nur so viel wert, wie
+die Zahlen sauber sind, die B-24 von der Zeit befreit.
+
+**Paket 2 ist das, was der Nutzer während der Einheit erlebt** – der Satz, den das
+Tribunal sagt, und der Bildschirm, auf dem er steht. B-26 ist reine Rechenlogik in
+`tribunal()` und damit konfliktfrei; B-27 fasst Wake Lock und Hochformat an. Beide
+sind klein, beide berühren die Statistik nicht, und beide setzen auf Paket 1 auf, ohne
+es zu ändern.
+
+**Paket 3 räumt auf und steht deshalb am Ende.** Es entfernt 53 Dateien und 43
+Abhängigkeiten und verschiebt Exporte zwischen Dateien. Vorgezogen würde es mit jedem
+anderen Paket kollidieren; die Lint-Fehler, die es beseitigen soll, sitzen zudem in
+Dateien, die Paket 1 und 2 vorher noch anfassen (`engine.ts`, `Visuals.tsx`). Es ist
+außerdem das Paket, nach dem `npm run lint` zum ersten Mal seit P0 auf null steht –
+das lässt sich nur zuletzt sinnvoll behaupten.
+
+## Nicht in P4
+
+- **B-13 ❓ (Bassschlüssel)**, **B-30 ❓ (IndexedDB)**, **B-31 ❓ (Notensystem in
+  Übung 1)**, **B-32 ❓ (Editor für eigene Folgen)** – vier offene Entscheidungen,
+  jede mit Empfehlung im Backlog. Nach P4 sind sie das Einzige, was noch aussteht.
+- **Set B aus `docs/Akkordfolgen.md`** (Septakkorde, Zwischendominanten, Umkehrungen)
+  – braucht Akkordtypen, die die App nicht kennt; eine Regeländerung nach §7.
+- **Konzept-Abnahmekriterium 3** („die nächste Stufe schaltet erst dann frei") ist mit
+  R11 bewusst gefallen und wird in P4 nicht zurückgeholt.
 
 ---
 
