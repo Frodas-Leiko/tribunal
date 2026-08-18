@@ -17,6 +17,7 @@ Abarbeitung von oben nach unten. Ein Item = ein Commit-Bereich (Regelwerk §5).
 | **P2** | Alle Level jederzeit spielbar, Fortschritt korrekt | B-14 … B-18 |
 | **P3** | Inhalte: Akkordfolgen und Moll-Vokabular | B-19 … B-23 |
 | **P4** | Konzepttreue, Messqualität, Aufräumen | B-24 … B-31 |
+| **P5** | Nachgereichte Befunde aus der Abnahme | B-33 |
 
 ---
 
@@ -578,6 +579,68 @@ deutlich, sobald das Moll-Vokabular (B-19) und die Auswahl-UI (B-22) stehen.
 
 ---
 
+### B-33 · Service Worker liefert einen alten Stand aus
+**Regel:** R7, §5.5 · **Aufwand:** klein · **Dateien:** `public/sw.js`, `src/main.tsx`, `vite.config.ts`
+
+**Befund (gemessen, 18.08.2026).** `public/sw.js` beantwortet alles außer Navigationen
+**Cache-first ohne Rückfrage** und trägt dabei einen festen Cache-Namen (`tribunal-v1`).
+Beides zusammen heißt: Was einmal im Cache liegt, bleibt dort und wird ausgeliefert,
+bis jemand den Worker von Hand abmeldet.
+
+1. **Der Cache wird nie ausgekehrt.** `activate` löscht Caches, deren Name von `CACHE`
+   abweicht – `CACHE` ist eine Konstante, also gibt es nie einen. Im gebauten Stand
+   gemessen: Nach einem neuen Build liegt `assets/index-DF-OjZ9a.js` (275 kB) weiter
+   neben dem neuen `assets/index-BWaKhaSc.js`. Jeder Build lässt sein Bündel liegen.
+2. **Nicht gehashte Dateien frieren ein.** Für Dateien unter `assets/` ist Cache-first
+   richtig: Ändert sich ihr Inhalt, ändert sich ihr Name. Alles andere behält seine
+   Adresse. Gemessen am Manifest: Der Server liefert die neue Fassung, der Worker die
+   vom ersten Besuch. Dasselbe gilt für die Icons und für alles, was künftig in
+   `public/` dazukommt.
+3. **In der Entwicklung friert die ganze App ein.** `main.tsx` registriert den Worker
+   auch auf `localhost`, wo Vite ohne Inhaltshash ausliefert. Gemessen: 33 Einträge im
+   Cache, darunter `/src/App.tsx`, `/src/lib/engine.ts` und `/src/sections/Home.tsx`.
+   In P4 Paket 3 zeigte der Stufenplan deshalb Schlösser aus der Zeit vor P2, bis der
+   Worker von Hand abgemeldet war – ein Debugging, das lügt.
+
+Konzept §7 verlangt „vollständig offline lauffähig". Das leistet der Worker; er leistet
+es nur zu dem Preis, dass ein Update nie ankommt (R7 will beides).
+
+**Umbau**
+- Der Cache-Name trägt die Kennung des Builds. Sie steht in der Adresse, mit der
+  `main.tsx` den Worker registriert (`sw.js?v=…`), und der Worker liest sie aus seiner
+  eigenen URL. Neuer Build → neuer Name → `activate` kehrt jeden älteren Cache aus.
+  Die geänderte Adresse ist zugleich das Signal, an dem der Browser den Worker erneuert.
+- **Cache-first nur für Unveränderliches**, also für alles unter `assets/` – dort
+  schreibt Vite ausschließlich inhaltsgehashte Namen. Für alles Übrige gilt
+  **Netz zuerst, Cache als Rückfalllinie**: online frisch, offline vollständig (R7).
+- **Kein Service Worker in der Entwicklung.** Wo schon einer registriert ist, meldet
+  die App ihn ab und räumt seine Caches weg, statt Handarbeit zu verlangen.
+- Das Manifest bleibt unverändert (B-27).
+
+**Akzeptanzkriterien**
+1. Ein neuer Build erneuert den Cache vollständig: Nach dem Laden gibt es genau einen
+   Cache, und er enthält keine Datei des vorherigen Builds.
+2. Eine nicht gehashte Datei (Manifest, Icon) wird online immer in der Fassung des
+   Servers ausgeliefert; offline bleibt die App vollständig lauffähig.
+3. In der Entwicklung ist kein Service Worker registriert, und eine vorgefundene
+   Registrierung samt Caches wird abgeräumt.
+
+**Prüfweg (ohne MIDI, ohne Gerät)**
+- AK 1/2 gegen `npm run preview`: laden, Cache auflisten, eine sichtbare Zeichenkette
+  ändern, neu bauen, neu laden – die neue Zeichenkette steht da, der Cache enthält nur
+  noch Dateien des neuen Builds. Für AK 2 dasselbe mit `manifest.webmanifest`, einmal
+  über den Worker und einmal mit umgehender Abfrage am Worker vorbei gelesen.
+- AK 3 gegen `npm run dev`: `navigator.serviceWorker.getRegistrations()` ist leer und
+  `caches.keys()` enthält keinen `tribunal-`-Cache.
+- Offline-Nachweis: Netz abschalten, neu laden – der Stufenplan steht.
+
+**Anmerkung.** Ein bereits vergifteter Entwicklungsbrowser heilt sich selbst: Der
+Browser prüft `sw.js` an der alten Registrierung vorbei am Netz, findet die neue
+Fassung, aktiviert sie, und deren `activate` löscht `tribunal-v1`. Ein Abmelden von
+Hand ist nur nötig, wenn der Browser diese Prüfung noch nicht gemacht hat.
+
+---
+
 ## Empfohlene Reihenfolge
 
 ```
@@ -587,6 +650,7 @@ B-07 → B-08 → B-09 → B-10 → B-11 → B-12      P1
 B-14 → B-15 → B-17 → B-18 → B-16             P2
 B-19 → B-20 → B-21 → B-22 → B-23             P3
 B-24 → B-25 → B-26 → B-27 → B-29             P4
+B-33                                         P5, Befund aus der Abnahme von P4
 B-13, B-30, B-31, B-32                       nach Entscheidung ❓
 ```
 
