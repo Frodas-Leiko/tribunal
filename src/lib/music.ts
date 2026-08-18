@@ -13,6 +13,39 @@ export function midiName(midi: number): string {
   return `${pcName(pc)}${oct}`;
 }
 
+// ── Buchstabierung (R9) ─────────────────────────────────────────────────────
+// `pcName()` nennt einen Klang; ein Notenname braucht zusätzlich den **Buchstaben**.
+// Tonhöhenklasse 8 heißt mit dem Buchstaben G „Gis" und mit dem Buchstaben A „As" –
+// derselbe Ton, zwei Namen. Welcher gilt, entscheidet die Skalenstufe (B-19), nie
+// eine Suche nach dem Grundton.
+
+/** Klingende Tonhöhenklassen der sieben Naturtöne C D E F G A H. */
+export const NATURAL_PC = [0, 2, 4, 5, 7, 9, 11];
+
+const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'H'];
+const FLAT_NAMES = ['Ces', 'Des', 'Es', 'Fes', 'Ges', 'As', 'B'];
+
+/** Vorzeichen in Halbtönen, das den Buchstaben auf die klingende Tonhöhenklasse bringt. */
+export function accidentalFor(letterIdx: number, pc: number): number {
+  const acc = (((pc - NATURAL_PC[letterIdx]) % 12) + 12) % 12;
+  return acc > 6 ? acc - 12 : acc;
+}
+
+/**
+ * Buchstabe + Klang → deutscher Notenname (R9).
+ *
+ * Das Stufen-Vokabular nach R15 kommt mit einem einfachen Vorzeichen aus. Ein
+ * Doppelvorzeichen wäre ein Fehler in der Stufen-Tabelle und scheitert deshalb
+ * laut, statt einen falschen Namen zu liefern (R16).
+ */
+export function spelledName(letterIdx: number, pc: number): string {
+  const acc = accidentalFor(letterIdx, pc);
+  if (acc === 0) return LETTERS[letterIdx];
+  if (acc === 1) return `${LETTERS[letterIdx]}is`;
+  if (acc === -1) return FLAT_NAMES[letterIdx];
+  throw new Error(`Doppelvorzeichen: Buchstabe ${LETTERS[letterIdx]} auf Tonhöhenklasse ${pc}`);
+}
+
 // ── Tonarten ────────────────────────────────────────────────────────────────
 
 export type Mode = 'dur' | 'moll';
@@ -90,36 +123,126 @@ export function getKey(id: string): KeyDef {
   return k;
 }
 
+/**
+ * Buchstabe der Tonika (0..6 = C..H). Alle Tonarten dieser App schreiben sich mit
+ * einem Naturton-Buchstaben – B-Dur mit dem Buchstaben H und einem ♭.
+ */
+const TONIC_LETTER: Record<number, number> = { 0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 10: 6, 11: 6 };
+
+export function tonicLetter(key: KeyDef): number {
+  const letter = TONIC_LETTER[key.tonic];
+  if (letter === undefined) throw new Error(`Tonart ohne Buchstaben: ${key.label}`);
+  return letter;
+}
+
 // ── Akkorde (Dreiklänge auf Stufen) ─────────────────────────────────────────
+
+export type ChordQuality = 'dur' | 'moll' | 'dim';
 
 export interface ChordDef {
   degree: string;        // "I", "ii", "V" …
+  step: number;          // Skalenstufe 0..6 – sie trägt den Buchstaben (B-19)
   name: string;          // "C-Dur", "d-Moll", "H°"
   pcs: number[];         // Pitch Classes [Grundton, Terz, Quinte]
-  quality: 'dur' | 'moll' | 'dim';
+  quality: ChordQuality;
 }
 
-const ROMAN_MAJOR = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
-const ROMAN_MINOR = ['i', 'ii°', 'III', 'iv', 'V', 'VI', 'VII'];
+/**
+ * Eine Stufenbezeichnung, aufgelöst gegen die Tonleiter der Tonart.
+ *
+ * `step` ist die Skalenstufe und bestimmt den **Buchstaben**: `VII` und `vii°`
+ * stehen beide auf der siebten Stufe. `alter` ist der Halbtonschritt gegenüber
+ * dem leitereigenen Ton – in Moll ist `key.scale` die **natürliche** Leiter, das
+ * harmonische Moll entsteht aus `alter: 1` auf der siebten Stufe.
+ */
+interface DegreeSpec {
+  step: number;
+  alter: number;
+  quality: ChordQuality;
+}
 
+/**
+ * Das vollständige Stufen-Vokabular nach R15. Was hier nicht steht, gibt es in
+ * dieser Tonart nicht: `chordForDegree()` liefert dafür `null`, und die Folge gilt
+ * als nicht verfügbar (R16) – statt still zu schrumpfen.
+ */
+const DEGREES: Record<Mode, Record<string, DegreeSpec>> = {
+  dur: {
+    'I':    { step: 0, alter: 0, quality: 'dur' },
+    'ii':   { step: 1, alter: 0, quality: 'moll' },
+    'iii':  { step: 2, alter: 0, quality: 'moll' },
+    'IV':   { step: 3, alter: 0, quality: 'dur' },
+    'V':    { step: 4, alter: 0, quality: 'dur' },
+    'vi':   { step: 5, alter: 0, quality: 'moll' },
+    'vii°': { step: 6, alter: 0, quality: 'dim' },
+  },
+  moll: {
+    // natürliches Moll
+    'i':    { step: 0, alter: 0, quality: 'moll' },
+    'ii°':  { step: 1, alter: 0, quality: 'dim' },
+    'III':  { step: 2, alter: 0, quality: 'dur' },
+    'iv':   { step: 3, alter: 0, quality: 'moll' },
+    'v':    { step: 4, alter: 0, quality: 'moll' },
+    'VI':   { step: 5, alter: 0, quality: 'dur' },
+    'VII':  { step: 6, alter: 0, quality: 'dur' },   // Dur-Dreiklang auf der kleinen Septime
+    // harmonisches Moll – der Leitton hebt die siebte Stufe um einen Halbton
+    'V':    { step: 4, alter: 0, quality: 'dur' },   // Dur-Dominante
+    'vii°': { step: 6, alter: 1, quality: 'dim' },   // Leittondreiklang
+  },
+};
+
+/** Alle Stufenbezeichner eines Tongeschlechts – der Vorrat, nicht die Reihenfolge. */
+export const DEGREE_VOCABULARY: Record<Mode, string[]> = {
+  dur: Object.keys(DEGREES.dur),
+  moll: Object.keys(DEGREES.moll),
+};
+
+/**
+ * Die skalengeordnete Reihenfolge der Stufen-Modi A/B/C: genau ein Akkord je
+ * Skalenstufe. Moll steht dabei harmonisch. Zwei Varianten auf derselben Stufe
+ * hätten in der Auf- und Abwärtsfolge von Modus A keine definierte Ordnung –
+ * `v` und `VII` sind deshalb über `chordForDegree()` verfügbar, nicht hier.
+ */
+const SEQUENCE: Record<Mode, string[]> = {
+  dur: ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'],
+  moll: ['i', 'ii°', 'III', 'iv', 'V', 'VI', 'vii°'],
+};
+
+function triad(key: KeyDef, degree: string, spec: DegreeSpec): ChordDef {
+  const root = (key.scale[spec.step] + spec.alter + 12) % 12;
+  const third = spec.quality === 'dur' ? 4 : 3;
+  const fifth = spec.quality === 'dim' ? 6 : 7;
+  const suffix = spec.quality === 'dur' ? '-Dur' : spec.quality === 'moll' ? '-Moll' : '°';
+  // Der Name folgt dem Buchstaben der Stufe, nicht der Tonhöhenklasse: in a-Moll
+  // heißt der Leittondreiklang `Gis°` und nicht `As°` (R9, B-19).
+  const name = `${spelledName((tonicLetter(key) + spec.step) % 7, root)}${suffix}`;
+  return {
+    degree,
+    step: spec.step,
+    name,
+    pcs: [root, (root + third) % 12, (root + fifth) % 12],
+    quality: spec.quality,
+  };
+}
+
+/**
+ * Der skalengeordnete Siebener einer Tonart – Grundlage der Stufen-Modi A/B/C.
+ * Dur: `I ii iii IV V vi vii°` · Moll (harmonisch): `i ii° III iv V VI vii°`.
+ */
 export function diatonicChords(key: KeyDef): ChordDef[] {
-  // Dur: I ii iii IV V vi vii° – Moll (harmonisch): i ii° III iv V VI VII
-  if (key.mode === 'dur') {
-    const quals: Array<'dur' | 'moll' | 'dim'> = ['dur', 'moll', 'moll', 'dur', 'dur', 'moll', 'dim'];
-    return key.scale.map((pc, i) => triad(pc, quals[i], ROMAN_MAJOR[i]));
-  }
-  // harmonisches Moll: Leitton +1 auf Stufe 7
-  const sc = [...key.scale];
-  sc[6] = (sc[6] + 1) % 12;
-  const quals: Array<'dur' | 'moll' | 'dim'> = ['moll', 'dim', 'dur', 'moll', 'dur', 'dur', 'dim'];
-  return sc.map((pc, i) => triad(pc, quals[i], ROMAN_MINOR[i]));
+  const vocabulary = DEGREES[key.mode];
+  return SEQUENCE[key.mode].map((d) => triad(key, d, vocabulary[d]));
 }
 
-function triad(root: number, quality: 'dur' | 'moll' | 'dim', degree: string): ChordDef {
-  const third = quality === 'dur' ? 4 : 3;
-  const fifth = quality === 'dim' ? 6 : 7;
-  const suffix = quality === 'dur' ? '-Dur' : quality === 'moll' ? '-Moll' : '°';
-  return { degree, name: `${pcName(root)}${suffix === '°' ? '°' : suffix}`, pcs: [root, (root + third) % 12, (root + fifth) % 12], quality };
+/**
+ * Löst eine Stufenbezeichnung im **vollständigen** Vokabular auf (R15) – also
+ * einschließlich `v` und `VII`, die in der Sequenz oben nicht vorkommen.
+ * `null` heißt: Diesen Akkord gibt es in dieser Tonart nicht.
+ */
+export function chordForDegree(key: KeyDef, degree: string): ChordDef | null {
+  const vocabulary = DEGREES[key.mode];
+  if (!Object.hasOwn(vocabulary, degree)) return null;
+  return triad(key, degree, vocabulary[degree]);
 }
 
 // Die MIDI-Lage eines Akkords entsteht ausschließlich in `spellTriad()` (R12.1: genau

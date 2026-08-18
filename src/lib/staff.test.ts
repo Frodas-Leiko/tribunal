@@ -4,24 +4,31 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  ANCHORS, ANCHOR_DEFAULT, BOTTOM_LINE, NATURAL_PC, REGISTER_TOLERANCE, TOP_LINE,
+  ANCHORS, ANCHOR_DEFAULT, BOTTOM_LINE, REGISTER_TOLERANCE, TOP_LINE,
   ZONE_SHIFT, anchorLabel, registerHint, registerOffset, spellTriad, staffLayout, unitFrame,
   topographyRange, zoneOf, zoneOfShift, type SpelledNote, type Zone,
 } from '@/lib/staff';
-import { KEYS, diatonicChords, getKey } from '@/lib/music';
+import {
+  DEGREE_VOCABULARY, KEYS, NATURAL_PC, chordForDegree, diatonicChords, getKey, spelledName,
+  type ChordDef, type KeyDef,
+} from '@/lib/music';
 
-// Nur für lesbare Fehlermeldungen: Buchstabe + Vorzeichen → deutscher Notenname.
-// Bewusst hier und nicht in `staff.ts` – die App braucht die Schreibweise nicht.
-const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'H'];
-const FLAT: Record<string, string> = { C: 'Ces', D: 'Des', E: 'Es', F: 'Fes', G: 'Ges', A: 'As', H: 'B' };
-function nameOf(n: SpelledNote): string {
-  const L = LETTERS[n.letterIdx];
-  const name = n.accidental === 1 ? `${L}is` : n.accidental === -1 ? FLAT[L] : L;
-  return `${name}${n.octave}`;
-}
+// Notenname aus Buchstabe und klingender Höhe – dieselbe Schreibregel, die auch
+// die Akkordnamen trägt (B-19). Hier nur, um Zusagen und Fehlermeldungen lesbar
+// zu halten; die Oktave hängt der Test selbst an.
+const nameOf = (n: SpelledNote) => `${spelledName(n.letterIdx, n.midi % 12)}${n.octave}`;
 const namesOf = (notes: SpelledNote[]) => notes.map(nameOf).join('–');
 
 const SHIFTS = [-1, 0, 1];
+
+/** Der vollständige Vorrat einer Tonart nach R15 – in Moll neun statt sieben Akkorde. */
+function allChords(key: KeyDef): ChordDef[] {
+  return DEGREE_VOCABULARY[key.mode].map((d) => {
+    const chord = chordForDegree(key, d);
+    if (!chord) throw new Error(`${d} fehlt im Vokabular von ${key.label}`);
+    return chord;
+  });
+}
 
 describe('Lage (R12.2)', () => {
   it('kennt C3, C4 und C5 und benennt sie', () => {
@@ -30,6 +37,10 @@ describe('Lage (R12.2)', () => {
     expect(anchorLabel(ANCHOR_DEFAULT)).toBe('C4');
   });
 });
+
+// Die Regressionsschleifen laufen über `allChords()`, nicht über die sieben Stufen
+// der Sequenz: `v`, `VII` und `vii°` werden in Akkordfolgen genauso gespielt und
+// gezeichnet wie die Stufen der Modi A/B/C (B-19, R15).
 
 describe('spellTriad · Anker-Oktave (B-07)', () => {
   it('baut C-Dur in Lage C4 auf den Grundtönen 60 62 64 65 67 69 71 (AK 2)', () => {
@@ -51,7 +62,7 @@ describe('spellTriad · Anker-Oktave (B-07)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         const tonicMidi = anchor + key.tonic;
-        for (const chord of diatonicChords(key)) {
+        for (const chord of allChords(key)) {
           const abstand = spellTriad(chord, key, 0, anchor)[0].midi - tonicMidi;
           expect(abstand, `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`).toBeGreaterThanOrEqual(0);
           expect(abstand, `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`).toBeLessThanOrEqual(11);
@@ -66,7 +77,7 @@ describe('spellTriad · Buchstabierung (AK 3, AK 4)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         for (const shift of SHIFTS) {
-          for (const chord of diatonicChords(key)) {
+          for (const chord of allChords(key)) {
             const notes = spellTriad(chord, key, shift, anchor);
             const wo = `${key.label} ${chord.degree} (${chord.name}) in ${anchorLabel(anchor)}${shift ? ` ${shift > 0 ? '+' : ''}${shift} Okt.` : ''}`;
 
@@ -104,6 +115,54 @@ describe('spellTriad · Buchstabierung (AK 3, AK 4)', () => {
     expect(fall('A-moll', 'V')).toBe('E5–Gis5–H5');    // Gis: schwarze Taste in einer Tonart ohne Vorzeichen
     expect(fall('E-moll', 'ii°')).toBe('Fis4–A4–C5');  // verminderter Dreiklang, Quinte ohne Vorzeichen
     expect(fall('G-moll', 'ii°')).toBe('A4–C5–Es5');   // verminderte Quinte als ♭
+  });
+});
+
+describe('spellTriad · Moll-Vokabular (B-19 AK 4)', () => {
+  // Der Grundton des Leittondreiklangs liegt auf einer schwarzen Taste, die es in
+  // der Skala nicht gibt. Vor B-19 fand `indexOf` ihn nicht und der Akkord bekam
+  // stumm den Tonika-Buchstaben – in a-Moll stand dort `As°` statt `Gis°`.
+  const fall = (keyId: string, degree: string) => {
+    const key = getKey(keyId);
+    const chord = chordForDegree(key, degree);
+    if (!chord) throw new Error(`${degree} fehlt in ${keyId}`);
+    return namesOf(spellTriad(chord, key));
+  };
+
+  it('schreibt den Leittondreiklang mit dem Buchstaben der siebten Stufe', () => {
+    expect(fall('A-moll', 'vii°')).toBe('Gis5–H5–D6');   // nicht As°
+    expect(fall('E-moll', 'vii°')).toBe('Dis5–Fis5–A5'); // nicht Es°
+    expect(fall('D-moll', 'vii°')).toBe('Cis5–E5–G5');
+    expect(fall('H-moll', 'vii°')).toBe('Ais5–Cis6–E6'); // nicht B°
+    expect(fall('G-moll', 'vii°')).toBe('Fis5–A5–C6');
+  });
+
+  it('schreibt VII als Dur-Dreiklang auf der kleinen Septime – einen Halbton tiefer', () => {
+    expect(fall('A-moll', 'VII')).toBe('G5–H5–D6');
+    expect(fall('E-moll', 'VII')).toBe('D5–Fis5–A5');
+    expect(fall('D-moll', 'VII')).toBe('C5–E5–G5');
+    expect(fall('H-moll', 'VII')).toBe('A5–Cis6–E6');
+    expect(fall('G-moll', 'VII')).toBe('F5–A5–C6');
+  });
+
+  it('schreibt die natürliche Moll-Dominante v mit demselben Buchstaben wie V', () => {
+    expect(fall('A-moll', 'v')).toBe('E5–G5–H5');
+    expect(fall('A-moll', 'V')).toBe('E5–Gis5–H5');
+    expect(fall('G-moll', 'v')).toBe('D5–F5–A5');
+    expect(fall('G-moll', 'V')).toBe('D5–Fis5–A5');
+  });
+
+  it('gibt VII und vii° denselben Buchstaben, aber verschiedene Grundtöne', () => {
+    for (const key of KEYS.filter((k) => k.mode === 'moll')) {
+      const sept = spellTriad(chordForDegree(key, 'VII')!, key);
+      const leitton = spellTriad(chordForDegree(key, 'vii°')!, key);
+      sept.forEach((n, i) => {
+        expect(leitton[i].letterIdx, `${key.label}: Buchstabe ${i}`).toBe(n.letterIdx);
+        expect(leitton[i].diatonic, `${key.label}: Notenzeile ${i}`).toBe(n.diatonic);
+      });
+      expect(leitton[0].midi - sept[0].midi, key.label).toBe(1);
+      expect(leitton[0].accidental, key.label).toBe(1);
+    }
   });
 });
 
@@ -151,7 +210,7 @@ describe('Register-Prüfung (B-12, R13)', () => {
 describe('spellTriad · Block-Versatz und Lage (R12.2, R12.4)', () => {
   it('verschiebt den ganzen Block um genau eine Oktave (AK 4 in B-08)', () => {
     for (const key of KEYS) {
-      for (const chord of diatonicChords(key)) {
+      for (const chord of allChords(key)) {
         const mitte = spellTriad(chord, key, 0);
         const oben = spellTriad(chord, key, 1);
         const unten = spellTriad(chord, key, -1);
@@ -167,7 +226,7 @@ describe('spellTriad · Block-Versatz und Lage (R12.2, R12.4)', () => {
 
   it('verschiebt mit der Lage denselben Griff um ganze Oktaven', () => {
     for (const key of KEYS) {
-      for (const chord of diatonicChords(key)) {
+      for (const chord of allChords(key)) {
         const c4 = spellTriad(chord, key, 0, 60);
         const c3 = spellTriad(chord, key, 0, 48);
         const c5 = spellTriad(chord, key, 0, 72);
@@ -220,7 +279,7 @@ describe('Zeichenfläche des Notensystems (B-09)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         const frame = unitFrame(key, anchor);
-        for (const chord of diatonicChords(key)) {
+        for (const chord of allChords(key)) {
           const base = spellTriad(chord, key, 0, anchor);
           const L = staffLayout({ lo: base[0].diatonic, hi: base[2].diatonic }, frame);
           const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`;
@@ -282,7 +341,7 @@ describe('Zeichenfläche des Notensystems (B-09)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         const frame = unitFrame(key, anchor);
-        const layouts = diatonicChords(key).map((chord) => {
+        const layouts = allChords(key).map((chord) => {
           const b = spellTriad(chord, key, 0, anchor);
           return staffLayout({ lo: b[0].diatonic, hi: b[2].diatonic }, frame);
         });
@@ -300,7 +359,7 @@ describe('Zeichenfläche des Notensystems (B-09)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         const frame = unitFrame(key, anchor);
-        for (const chord of diatonicChords(key)) {
+        for (const chord of allChords(key)) {
           const b = spellTriad(chord, key, 0, anchor);
           const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)}`;
           expect(b[0].diatonic, wo).toBeGreaterThanOrEqual(frame.lo);
@@ -327,7 +386,7 @@ describe('Kartenausschnitt der Topographie (B-11)', () => {
     for (const key of KEYS) {
       for (const anchor of ANCHORS) {
         const { start, end } = topographyRange(anchor, key.tonic);
-        for (const chord of diatonicChords(key)) {
+        for (const chord of allChords(key)) {
           for (const shift of SHIFTS) {
             for (const n of spellTriad(chord, key, shift, anchor)) {
               const wo = `${key.label} ${chord.degree} in ${anchorLabel(anchor)} (${shift})`;

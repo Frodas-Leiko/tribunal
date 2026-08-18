@@ -1,9 +1,8 @@
-// ── Notensystem: deutsche Buchstaben-Logik & Staff-Positionen ───────────────
+// ── Notensystem: Lage, Buchstabierung im Raster, Staff-Positionen ───────────
+// Die Buchstaben selbst kommen aus `music.ts` (R9) – hier bekommen sie eine
+// Oktave, eine y-Position und eine Zone.
 
-import type { ChordDef, KeyDef } from './music';
-
-// Deutsche Naturtöne: C D E F G A H  (H = B natural)
-export const NATURAL_PC = [0, 2, 4, 5, 7, 9, 11]; // C..H
+import { NATURAL_PC, accidentalFor, tonicLetter, type ChordDef, type KeyDef } from './music';
 
 export interface SpelledNote {
   midi: number;
@@ -11,12 +10,6 @@ export interface SpelledNote {
   octave: number;
   accidental: -1 | 0 | 1;
   diatonic: number;    // octave*7 + letterIdx (C4 = 28)
-}
-
-/** Buchstabe der Tonika (Tonarten in dieser App sind alle „natürliche" Buchstaben außer B-Dur). */
-function tonicLetter(key: KeyDef): number {
-  const map: Record<number, number> = { 0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 11: 6, 10: 6 /* B-Dur: Buchstabe B = H mit ♭ */ };
-  return map[key.tonic] ?? 0;
 }
 
 // ── Lage / Anker-Oktave (R12) ────────────────────────────────────────────────
@@ -40,13 +33,12 @@ export function anchorLabel(anchor: number): string {
  * genau eine Oktave (R12.4, Übung 2); die Handform bleibt identisch.
  */
 export function spellTriad(chord: ChordDef, key: KeyDef, octaveShift = 0, anchor: number = ANCHOR_DEFAULT): SpelledNote[] {
-  // Stufen-Index des Grundtons in der Skala. Nicht auflösbare Stufen fallen auf den
-  // Tonika-Buchstaben zurück; der laute Fehler dafür ist B-21 (R16), das vollständige
-  // Moll-Vokabular B-19.
-  const scale = key.mode === 'dur' ? key.scale : [...key.scale.slice(0, 6), (key.scale[6] + 1) % 12];
-  const deg = scale.indexOf(chord.pcs[0]);
-  const base = tonicLetter(key);
-  const rootLetter = ((base + Math.max(deg, 0)) % 7 + 7) % 7;
+  // B-19: Der Buchstabe kommt aus der Skalenstufe des Akkords, nicht aus einer Suche
+  // nach seinem Grundton. `VII` und `vii°` stehen beide auf der siebten Stufe und
+  // tragen denselben Buchstaben; ihre Grundtöne trennt ein Halbton. Die frühere
+  // Suche fand für beide keinen Index und fiel stumm auf den Tonika-Buchstaben
+  // zurück – ein falsches Vorzeichen ohne jeden Hinweis.
+  const rootLetter = (tonicLetter(key) + chord.step) % 7;
 
   const tonicMidi = anchor + key.tonic;
   const rootMidi = tonicMidi + ((chord.pcs[0] - key.tonic + 12) % 12) + octaveShift * 12;
@@ -62,10 +54,7 @@ export function spellTriad(chord: ChordDef, key: KeyDef, octaveShift = 0, anchor
 
 /** Klingende Höhe + Buchstabe → Notenkopf-Position und Vorzeichen. */
 function spellNote(midi: number, letterIdx: number): SpelledNote {
-  let acc = (midi % 12) - NATURAL_PC[letterIdx];
-  // Normalisieren auf -1..1
-  while (acc > 6) acc -= 12;
-  while (acc < -6) acc += 12;
+  const acc = accidentalFor(letterIdx, midi % 12);
   const accClamped = (acc === 0 ? 0 : acc > 0 ? 1 : -1) as -1 | 0 | 1;
   // Die Oktave folgt aus Buchstabe und Vorzeichen, nicht aus `midi / 12`: bei Ces oder
   // His liegt die Buchstaben-Oktave neben der MIDI-Oktave – und `diatonic` trägt jede

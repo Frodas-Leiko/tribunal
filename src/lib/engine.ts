@@ -9,7 +9,7 @@ import {
 import { Metronome, Scheduler, requestWakeLock } from './audio';
 import type { NoteEvent } from './midi';
 import {
-  diatonicChords, getKey, tribunal,
+  chordForDegree, diatonicChords, getKey, tribunal,
   type ChordDef, type DictateMode, PROGRESSIONS,
 } from './music';
 import { createSessionMachine, type SessionMachine, type SessionState } from './session-state';
@@ -561,9 +561,11 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
     if (config.source === 'progression') {
       const prog = PROGRESSIONS.find((p) => p.id === config.progressionId);
-      const all = diatonicChords(key);
+      // B-19: Aufgelöst wird gegen das vollständige Vokabular (R15), nicht gegen die
+      // Sequenz der Stufen-Modi – `v` und `VII` stehen nur dort. Die stille Kürzung
+      // durch `filter` bleibt bis B-21 stehen.
       const degrees = prog ? prog.degrees[key.mode] : [];
-      chordsRef.current = degrees.map((d) => all.find((c) => c.degree === d)).filter((c): c is ChordDef => !!c);
+      chordsRef.current = degrees.map((d) => chordForDegree(key, d)).filter((c): c is ChordDef => !!c);
     } else {
       chordsRef.current = diatonicChords(key);
     }
