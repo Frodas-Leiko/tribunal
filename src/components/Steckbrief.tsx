@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { COLORS } from './Visuals';
-import { midiName, pcName, type KeyDef, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
+import { midiName, pcName, type KeyDef, type Mode, type ProgressionDef, TIMING_BRIEFS } from '@/lib/music';
 import { anchorLabel } from '@/lib/staff';
 import { useScrollLock } from './scroll-lock';
 
@@ -47,7 +47,7 @@ export function KeyBrief({ k, anchor }: { k: KeyDef; anchor: number }) {
   );
 }
 
-export function ProgressionBrief({ p, mode }: { p: ProgressionDef; mode: 'dur' | 'moll' }) {
+export function ProgressionBrief({ p, mode, anchor }: { p: ProgressionDef; mode: Mode; anchor: number }) {
   // B-20: `null` heißt „in diesem Tongeschlecht bewusst nicht angeboten". Der
   // Steckbrief sagt das, statt die Zeile leer zu lassen.
   const degrees = p.degrees[mode];
@@ -55,6 +55,10 @@ export function ProgressionBrief({ p, mode }: { p: ProgressionDef; mode: 'dur' |
   return (
     <>
       <Row k="Stufen" v={degrees ? degrees.join(' → ') : `In ${mode === 'dur' ? 'Dur' : 'Moll'} nicht angeboten – diese Folge gibt es nur in ${andere}.`} />
+      {/* B-23 AK 3: Die Lage gehört seit B-08 zur Einheit und steht deshalb auch
+          im Steckbrief der Folge – mit derselben Beschriftung wie bei der Tonart
+          (R12.5). */}
+      <Row k="Lage" v={`${anchorLabel(anchor)} · jeder Grundton in dieser Oktave, alle Stufen aufwärts von der Tonika`} />
       <Row k="Funktion" v={p.logic} />
       <Row k="Fingersatz" v={p.fingeringHint} />
     </>

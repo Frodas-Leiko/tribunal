@@ -287,7 +287,7 @@ export function Home({ progress, onStart, openAudio }: {
       )}
       {brief?.kind === 'prog' && (
         <BriefOverlay title="Steckbrief: Akkordfolge" onClose={() => setBrief(null)}>
-          <ProgressionBrief p={PROGRESSIONS.find((p) => p.id === brief.progId)!} mode={selected?.mode ?? 'dur'} />
+          <ProgressionBrief p={PROGRESSIONS.find((p) => p.id === brief.progId)!} mode={selected?.mode ?? 'dur'} anchor={anchor} />
         </BriefOverlay>
       )}
       {brief?.kind === 'timing' && (

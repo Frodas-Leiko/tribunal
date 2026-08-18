@@ -8,6 +8,7 @@ import { getKey, PROGRESSIONS } from '@/lib/music';
 import { unitFrame } from '@/lib/staff';
 import { PASS_STREAK } from '@/lib/store';
 import { Staff, Topography, SubdivisionBar, Tribunal, COLORS } from '@/components/Visuals';
+import { BriefOverlay, KeyBrief, ProgressionBrief } from '@/components/Steckbrief';
 
 export function Session({ setup, audio, onExit, onProgressChanged }: {
   setup: SessionSetup;
@@ -19,6 +20,10 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
   const input = useNoteInput(useCallback((ev) => handleNote(ev), [handleNote]));
 
   const [audioState, setAudioState] = useState<AudioContextState>(audio.state);
+  // B-23 AK 2: Der Steckbrief in der laufenden Einheit ist reine Anzeige. Er liegt
+  // bewusst im lokalen Zustand dieser Ansicht und nicht im Zustandsautomaten: kein
+  // `PAUSED`, kein gestoppter Timer, der Takt läuft weiter (R17, R22).
+  const [briefOffen, setBriefOffen] = useState(false);
   const startedRef = useRef(false);
 
   // Die Einheit startet erst, wenn der Kontext wirklich läuft (R18/AK 2). Steht er
@@ -51,8 +56,8 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
   }, [audio, armIfReady, stop]);
 
   const key = getKey(setup.keyId);
-  const progName = setup.source === 'progression'
-    ? PROGRESSIONS.find((p) => p.id === setup.progressionId)?.name
+  const prog = setup.source === 'progression'
+    ? PROGRESSIONS.find((p) => p.id === setup.progressionId) ?? null
     : null;
 
   const griffMulde = hud?.spelled?.map((n) => n.midi) ?? [];
@@ -67,10 +72,13 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
         <div className="session-meta">
           <strong>{key.label}</strong>
           <span>{setup.exercise === 1 ? 'Blind-Griff' : 'Systemsprung'}</span>
-          <span>{progName ?? `Modus ${setup.mode}`}</span>
+          <span>{prog?.name ?? `Modus ${setup.mode}`}</span>
           <span style={{ color: COLORS.amber }}>{hud?.tempo ?? setup.initialTempo} bpm</span>
           <span>Serie: <strong style={{ color: COLORS.green }}>{hud?.streak ?? 0}</strong>/{PASS_STREAK}</span>
           <span>±{setup.tolerance} ms</span>
+          {/* Konzept §10.4: höchstens ein Tippen. Für Stufen-Einheiten öffnet
+              derselbe Knopf den Steckbrief der Tonart – er ist nie tot. */}
+          <button className="brief-btn" onClick={() => setBriefOffen(true)} aria-label="Steckbrief">ⓘ</button>
         </div>
         <div className="session-input">
           {input.source === 'midi' ? (
@@ -145,6 +153,21 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
           <span>{hud.banner}</span>
           <button onClick={clearBanner}>Weiter</button>
         </div>
+      )}
+
+      {/* B-23 AK 2: derselbe Steckbrief wie im Setup, mitten in der Einheit. Das
+          Overlay ist eine Anzeige, keine Eingabeschicht – MIDI und Demo-Tastatur
+          laufen unverändert in die Auswertung (R6: Touch ist im Steckbrief
+          ausdrücklich erlaubt, die Übung selbst wird weiterhin nicht angetippt). */}
+      {briefOffen && (
+        <BriefOverlay
+          title={prog ? `Steckbrief: ${prog.name}` : `Steckbrief: ${key.label}`}
+          onClose={() => setBriefOffen(false)}
+        >
+          {prog
+            ? <ProgressionBrief p={prog} mode={key.mode} anchor={setup.anchor} />
+            : <KeyBrief k={key} anchor={setup.anchor} />}
+        </BriefOverlay>
       )}
     </div>
   );

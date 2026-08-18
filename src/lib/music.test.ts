@@ -532,3 +532,38 @@ describe('unavailableReason (AK 3)', () => {
     }
   });
 });
+
+// ── Steckbriefe (B-23 AK 1) ─────────────────────────────────────────────────
+// Der Steckbrief einer Folge besteht aus drei Angaben. Fehlt eine, ist der
+// Eintrag unvollständig – geprüft über den gesamten Bestand, nicht in Stichproben.
+
+describe('Steckbriefe aller 32 Folgen (B-23 AK 1)', () => {
+  it('trägt zu jeder Folge eine Stufenbezeichnung aus dem Vokabular (R15)', () => {
+    for (const p of PROGRESSIONS) {
+      const ketten = ([p.degrees.dur, p.degrees.moll]).filter((k) => k !== null);
+      // Mindestens ein Tongeschlecht – sonst zeigt der Steckbrief nichts an.
+      expect(ketten.length, p.id).toBeGreaterThan(0);
+      for (const kette of ketten) {
+        expect(kette.length, p.id).toBeGreaterThan(1);
+        for (const stufe of kette) {
+          const vokabular = kette === p.degrees.dur ? DEGREE_VOCABULARY.dur : DEGREE_VOCABULARY.moll;
+          expect(vokabular, `${p.id}: ${stufe}`).toContain(stufe);
+        }
+      }
+    }
+  });
+
+  it('erklärt zu jeder Folge die harmonische Logik in einem Satz', () => {
+    for (const p of PROGRESSIONS) {
+      expect(p.logic.trim().length, p.id).toBeGreaterThan(20);
+      // Ein ausformulierter Satz, kein Stichwort – der Kanon endet auf einer Klammer.
+      expect(p.logic.trim(), p.id).toMatch(/[.)]$/);
+    }
+  });
+
+  it('gibt zu jeder Folge einen Fingersatz-Hinweis', () => {
+    for (const p of PROGRESSIONS) {
+      expect(p.fingeringHint.trim().length, p.id).toBeGreaterThan(20);
+    }
+  });
+});
