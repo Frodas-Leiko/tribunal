@@ -4,8 +4,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  DEGREE_VOCABULARY, KEYS, PROGRESSIONS, chordForDegree, diatonicChords, getKey, pcName,
-  resolveProgression, tribunal, unavailableReason,
+  DEGREE_VOCABULARY, KEYS, NATURAL_PC, PROGRESSIONS, chordForDegree, diatonicChords, getKey,
+  isBlackKey, pcName, resolveProgression, tribunal, unavailableReason,
   type ChordDef, type Mode, type ProgressionDef, type ProgressionKategorie,
 } from '@/lib/music';
 
@@ -21,6 +21,26 @@ describe('deutsche Notennamen (R9)', () => {
   });
 });
 
+// ── Schwarz oder weiß (B-26) ────────────────────────────────────────────────
+
+describe('isBlackKey (B-26)', () => {
+  it('nennt die sieben Naturtöne weiß', () => {
+    for (const pc of NATURAL_PC) expect(isBlackKey(pc), pcName(pc)).toBe(false);
+  });
+
+  it('nennt die übrigen fünf Tonhöhenklassen schwarz', () => {
+    const schwarz = [1, 3, 6, 8, 10];   // Cis Es Fis As B
+    for (const pc of schwarz) expect(isBlackKey(pc), pcName(pc)).toBe(true);
+    expect(schwarz.length + NATURAL_PC.length).toBe(12);
+  });
+
+  it('rechnet Tonhöhenklassen außerhalb 0..11 in die Oktave zurück', () => {
+    expect(isBlackKey(12)).toBe(false);   // C
+    expect(isBlackKey(-1)).toBe(false);   // H
+    expect(isBlackKey(-2)).toBe(true);    // B
+  });
+});
+
 // ── Tribunal (B-05, R23/R2/R3) ──────────────────────────────────────────────
 // Die Akkorde stehen absichtlich als Literale hier und kommen nicht aus
 // diatonicChords(): dessen Lage-Logik wird in P1 (B-07) noch geändert.
@@ -32,17 +52,19 @@ describe('tribunal', () => {
 
   describe('Rang 1 · Vektor (bestehendes Verhalten, AK 3)', () => {
     it('nennt den Finger und die Richtung, wenn ein Ton zu hoch liegt', () => {
-      // D – Fis – B statt D – Fis – A: die Quinte liegt einen Halbton zu hoch
+      // D – Fis – B statt D – Fis – A: die Quinte liegt einen Halbton zu hoch.
+      // Ziel ist das A – eine weiße Taste, links neben dem gegriffenen B (B-26).
       const v = tribunal(tonika, new Set([2, 6, 10]), dDur);
-      expect(v.big).toBe('Kleiner Finger (Finger 5): eine Taste tiefer');
+      expect(v.big).toBe('Kleiner Finger (Finger 5): die weiße Taste links daneben');
       expect(v.small).toBe('Quinte +1 Halbton');
       expect(v.direction).toBe(1);
     });
 
     it('nennt die Gegenrichtung, wenn ein Ton zu tief liegt', () => {
-      // D – F – A statt D – Fis – A: die Terz liegt einen Halbton zu tief
+      // D – F – A statt D – Fis – A: die Terz liegt einen Halbton zu tief.
+      // Ziel ist das Fis – eine schwarze Taste, rechts neben dem gegriffenen F.
       const v = tribunal(tonika, new Set([2, 5, 9]), dDur);
-      expect(v.big).toBe('Mittelfinger (Finger 3): eine Taste höher');
+      expect(v.big).toBe('Mittelfinger (Finger 3): die schwarze Taste rechts daneben');
       expect(v.small).toBe('Terz −1 Halbton');
       expect(v.direction).toBe(-1);
     });
@@ -51,7 +73,7 @@ describe('tribunal', () => {
       // C – Fis – B statt D – Fis – A: der Grundton liegt zwei Tasten daneben,
       // die Quinte nur eine → gemeldet wird die Quinte.
       const v = tribunal(tonika, new Set([0, 6, 10]), dDur);
-      expect(v.big).toBe('Kleiner Finger (Finger 5): eine Taste tiefer');
+      expect(v.big).toBe('Kleiner Finger (Finger 5): die weiße Taste links daneben');
       expect(v.small).toBe('Quinte +1 Halbton');
     });
 
@@ -168,6 +190,71 @@ describe('tribunal', () => {
       const v = tribunal(tonika, new Set(), dDur);
       expect(v.finger).toBeNull();
       expect(v.halbtoene).toBe(0);
+    });
+  });
+
+  // ── B-26, R2, Konzept §4.1: schwarz oder weiß statt nur höher/tiefer ──────
+  describe('Beschaffenheit der Zieltaste (B-26, R2, Konzept §4.1)', () => {
+    const gMoll = getKey('G-moll');                                 // Skala: G A B C D Es F
+    const cMoll: ChordDef = { degree: 'iv', step: 3, name: 'C-Moll', pcs: [0, 3, 7], quality: 'moll' };
+
+    it('nennt die weiße Taste, wenn das Ziel ein Naturton ist (AK 1)', () => {
+      // D – Fis – B statt D – Fis – A: Ziel ist das A
+      const v = tribunal(tonika, new Set([2, 6, 10]), dDur);
+      expect(v.big).toBe('Kleiner Finger (Finger 5): die weiße Taste links daneben');
+    });
+
+    it('nennt die schwarze Taste, wenn das Ziel keiner ist (AK 1)', () => {
+      // C – E – G statt C – Es – G: Ziel ist das Es
+      const v = tribunal(cMoll, new Set([0, 4, 7]), gMoll);
+      expect(v.big).toBe('Mittelfinger (Finger 3): die schwarze Taste links daneben');
+    });
+
+    it('lässt die kleine Zeile Zeichen für Zeichen unangetastet (AK 2)', () => {
+      expect(tribunal(tonika, new Set([2, 6, 10]), dDur).small).toBe('Quinte +1 Halbton');
+      expect(tribunal(cMoll, new Set([0, 4, 7]), gMoll).small).toBe('Terz +1 Halbton');
+      expect(tribunal(tonika, new Set([2, 5, 9]), dDur).small).toBe('Terz −1 Halbton');
+    });
+
+    it('bleibt ab zwei Tasten Abstand bei der Zählform', () => {
+      // D – Fis – H: die Quinte liegt zwei Tasten zu hoch – eine Farbe ohne
+      // Nachbarschaft hilft der Hand nicht.
+      const v = tribunal(tonika, new Set([2, 6, 11]), dDur);
+      expect(v.big).toBe('Kleiner Finger (Finger 5): 2 Tasten tiefer');
+    });
+
+    it('urteilt über die Ziel-, nicht die gespielte Tonhöhenklasse', () => {
+      // Ziel Fis (schwarz), gegriffen G (weiß) → die Anweisung nennt schwarz.
+      expect(tribunal(tonika, new Set([2, 7, 9]), dDur).big)
+        .toBe('Mittelfinger (Finger 3): die schwarze Taste links daneben');
+      // Ziel A (weiß), gegriffen As (schwarz) → die Anweisung nennt weiß.
+      expect(tribunal(tonika, new Set([2, 6, 8]), dDur).big)
+        .toBe('Kleiner Finger (Finger 5): die weiße Taste rechts daneben');
+    });
+
+    it('trifft alle 12 Zieltöne in beiden Richtungen (AK 3)', () => {
+      // Für jede Zieltonhöhenklasse ein Dur-Dreiklang darauf; gegriffen wird der
+      // Grundton einen Halbton daneben. Die Erwartung kommt aus NATURAL_PC, nicht
+      // aus derselben Formel wie die Anweisung.
+      for (let ziel = 0; ziel < 12; ziel++) {
+        const dreiklang: ChordDef = {
+          degree: 'I', step: 0, name: `${pcName(ziel)}-Dur`, quality: 'dur',
+          pcs: [ziel, (ziel + 4) % 12, (ziel + 7) % 12],
+        };
+        for (const richtung of [1, -1] as const) {
+          const daneben = ((ziel + richtung) % 12 + 12) % 12;
+          const v = tribunal(dreiklang, new Set([daneben, (ziel + 4) % 12, (ziel + 7) % 12]), dDur);
+          const farbe = NATURAL_PC.includes(ziel) ? 'weiße' : 'schwarze';
+          const seite = richtung > 0 ? 'links' : 'rechts';
+          expect(v.big, `Ziel ${pcName(ziel)} ${seite}`)
+            .toBe(`Daumen (Finger 1): die ${farbe} Taste ${seite} daneben`);
+          expect(v.small, `Ziel ${pcName(ziel)} ${seite}`)
+            .toBe(`Grundton ${richtung > 0 ? '+' : '−'}1 Halbton`);
+          expect(v.direction, `Ziel ${pcName(ziel)} ${seite}`).toBe(richtung);
+          expect(v.finger, `Ziel ${pcName(ziel)} ${seite}`).toBe(0);
+          expect(v.halbtoene, `Ziel ${pcName(ziel)} ${seite}`).toBe(1);
+        }
+      }
     });
   });
 });

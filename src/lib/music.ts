@@ -684,6 +684,34 @@ export const MODE_LABELS: Record<DictateMode, string> = {
 export const FINGER_NAMES = ['Daumen (Finger 1)', 'Mittelfinger (Finger 3)', 'Kleiner Finger (Finger 5)'];
 export const INTERVAL_NAMES = ['Grundton', 'Terz', 'Quinte'];
 
+/**
+ * Liegt diese Tonhöhenklasse auf einer schwarzen Taste? Die sieben Naturtöne aus
+ * `NATURAL_PC` sind weiß, alles andere ist schwarz – mehr braucht die Hand nicht
+ * zu wissen (Konzept §4.1).
+ */
+export function isBlackKey(pc: number): boolean {
+  return !NATURAL_PC.includes(((pc % 12) + 12) % 12);
+}
+
+/**
+ * Die ausführbare Anweisung für einen Halbtonschritt (B-26, R2 groß): Beschaffenheit
+ * der **Zieltaste** und ihre Seite relativ zur Hand.
+ *
+ * `links`/`rechts` statt `tiefer`/`höher`, weil die große Zeile ohne Theoriekenntnis
+ * ausführbar sein muss (R2): „tiefer" ist Tonhöhensprache, „links daneben" ist eine
+ * Handbewegung. Konzept §4.1 nennt genau diese Form als Beispiel („die schwarze Taste
+ * links daneben", „inkl. Richtung relativ zur Hand"). Ab zwei Tasten Abstand bleibt es
+ * bei der Zählform: eine Farbe ohne Nachbarschaft hilft der Hand nicht.
+ *
+ * @param zielPc Tonhöhenklasse des **Ziels**, nicht des gespielten Tons – wer eine
+ *               schwarze Taste zu tief liegt, soll wissen, worauf er landet.
+ * @param diff   gespielt − Ziel in Halbtönen; positiv = zu hoch gegriffen.
+ */
+export function nachbartasteText(zielPc: number, diff: 1 | -1): string {
+  const farbe = isBlackKey(zielPc) ? 'schwarze' : 'weiße';
+  return `die ${farbe} Taste ${diff > 0 ? 'links' : 'rechts'} daneben`;
+}
+
 // ── Tribunal: Fehlgriff → genau eine ausführbare Korrektur ──────────────────
 
 export interface TribunalVerdict {
@@ -729,20 +757,23 @@ export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): 
 
   // Rang 1 – der kleinste Abstand zwischen einem fehlenden Zielton und einem
   // überzähligen Ton ist der Finger, der am ehesten nur danebenlag.
-  let best: { idx: number; diff: number } | null = null;
+  let best: { idx: number; diff: number; zielPc: number } | null = null;
   for (const target of missing) {
     for (const played of extra) {
       let diff = played - target.pc;
       while (diff > 6) diff -= 12;
       while (diff < -6) diff += 12;
-      if (!best || Math.abs(diff) < Math.abs(best.diff)) best = { idx: target.idx, diff };
+      if (!best || Math.abs(diff) < Math.abs(best.diff)) best = { idx: target.idx, diff, zielPc: target.pc };
     }
   }
   if (best) {
     const n = Math.abs(best.diff);
-    const tasterWord = n === 1 ? 'eine Taste' : `${n} Tasten`;
+    // B-26: Beim Nachbarn nennt die Anweisung die Zieltaste selbst, sonst zählt sie.
+    const weg = n === 1
+      ? nachbartasteText(best.zielPc, best.diff > 0 ? 1 : -1)
+      : `${n} Tasten ${best.diff > 0 ? 'tiefer' : 'höher'}`;
     return {
-      big: `${FINGER_NAMES[best.idx]}: ${tasterWord} ${best.diff > 0 ? 'tiefer' : 'höher'}`,
+      big: `${FINGER_NAMES[best.idx]}: ${weg}`,
       small: `${INTERVAL_NAMES[best.idx]} ${best.diff > 0 ? '+' : '−'}${n} Halbton${n > 1 ? 'e' : ''}`,
       direction: best.diff > 0 ? 1 : -1,
       finger: fingerOf(best.idx),
