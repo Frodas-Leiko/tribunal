@@ -304,6 +304,11 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     let griffOk = false;
     let timingOk: boolean | null = null;
     let direction: 1 | -1 | 0 = 0;
+    // R27: Der Finger, über den das Urteil spricht, und die Größe seiner
+    // Abweichung. Ohne Finger bleibt es bei `null` – der ausgebliebene Anschlag
+    // und die falsche Zone nennen keinen.
+    let finger: 0 | 1 | 2 | null = null;
+    let halbtoene = 0;
     let offset: number | null = null;
 
     const spelled = spellTriad(cur.chord, key, cur.shift, config.anchor);
@@ -359,6 +364,8 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       } else {
         const vec = tribunal(cur.chord, playedPcs, key);
         direction = vec.direction;
+        finger = vec.finger;
+        halbtoene = vec.halbtoene;
         feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: offset };
       }
     }
@@ -367,7 +374,8 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     if (!success) streakRef.current = 0;
     const banner = success ? registerSuccess() : null;
     statsRef.current = recordAttempt(statsRef.current, {
-      keyId: config.keyId, chordName: cur.chord.name, griffOk, timingOk, direction, timingOffset: offset,
+      keyId: config.keyId, chordName: cur.chord.name,
+      griffOk, timingOk, direction, finger, halbtoene, timingOffset: offset,
     });
 
     setHud((h) => h && ({
@@ -506,7 +514,7 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       // Abweichung zu messen, also behauptet die Akte auch keine (R4, R26).
       statsRef.current = recordAttempt(statsRef.current, {
         keyId: config.keyId, chordName: cur.chord.name,
-        griffOk: true, timingOk: null, direction: 0, timingOffset: null,
+        griffOk: true, timingOk: null, direction: 0, finger: null, halbtoene: 0, timingOffset: null,
       });
 
       // Uhr kalibrieren: der Anschlag IST der Beat
@@ -541,6 +549,8 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       // Weiter pausiert: genau ein Hinweis als Korrekturhilfe (R2, R3)
       let feedback: Feedback;
       let direction: 1 | -1 | 0;
+      let finger: 0 | 1 | 2 | null = null;
+      let halbtoene = 0;
       if (allHit && noExtra) {
         // Alle Töne liegen, nur die Zone nicht (Übung 2). Das Tribunal urteilt über
         // Tonhöhenklassen; „Akkord nicht gefunden" wäre hier nach R23 falsch.
@@ -554,11 +564,13 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       } else {
         const vec = tribunal(cur.chord, playedPcs, key);
         direction = vec.direction;
+        finger = vec.finger;
+        halbtoene = vec.halbtoene;
         feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: null };
       }
       statsRef.current = recordAttempt(statsRef.current, {
         keyId: config.keyId, chordName: cur.chord.name,
-        griffOk: false, timingOk: null, direction, timingOffset: null,
+        griffOk: false, timingOk: null, direction, finger, halbtoene, timingOffset: null,
       });
       setHud((h) => h && ({ ...h, feedback, streak: 0 }));
       streakRef.current = 0;

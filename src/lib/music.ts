@@ -690,6 +690,19 @@ export interface TribunalVerdict {
   big: string;                  // R2 groß: ausführbar ohne Theoriekenntnis
   small: string;                // R2 klein: Fachbegriff
   direction: 1 | -1 | 0;        // 1 = zu hoch gegriffen, -1 = zu tief, 0 = ohne Richtung
+  /**
+   * R27: der Finger, über den das Urteil spricht – 0 Grundton, 1 Terz,
+   * 2 Quinte. `null` bei Urteilen ohne Finger: „Ein Ton zu viel" und
+   * „Akkord nicht gefunden" nennen keinen.
+   */
+  finger: 0 | 1 | 2 | null;
+  /** Größe der Abweichung in Halbtönen; 0, wenn das Urteil ohne Vektor auskommt. */
+  halbtoene: number;
+}
+
+/** Der Index eines Dreiklang-Tons als Finger (R27); alles andere hat keinen. */
+function fingerOf(idx: number): 0 | 1 | 2 | null {
+  return idx === 0 || idx === 1 || idx === 2 ? idx : null;
 }
 
 /**
@@ -732,6 +745,8 @@ export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): 
       big: `${FINGER_NAMES[best.idx]}: ${tasterWord} ${best.diff > 0 ? 'tiefer' : 'höher'}`,
       small: `${INTERVAL_NAMES[best.idx]} ${best.diff > 0 ? '+' : '−'}${n} Halbton${n > 1 ? 'e' : ''}`,
       direction: best.diff > 0 ? 1 : -1,
+      finger: fingerOf(best.idx),
+      halbtoene: n,
     };
   }
 
@@ -743,6 +758,9 @@ export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): 
       big: `${FINGER_NAMES[idx]} fehlt`,
       small: `${INTERVAL_NAMES[idx]} fehlt`,
       direction: 0,
+      // Der Finger steht fest, die Größe nicht: ein fehlender Ton hat keinen Vektor.
+      finger: fingerOf(idx),
+      halbtoene: 0,
     };
   }
 
@@ -755,6 +773,8 @@ export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): 
       // „nicht in <Tonart>" wäre für sie falsch (R4: messen statt meinen).
       small: key.scale.includes(pc) ? `nicht in ${chord.name}` : `nicht in ${key.label}`,
       direction: 0,
+      finger: null,
+      halbtoene: 0,
     };
   }
 
@@ -763,5 +783,7 @@ export function tribunal(chord: ChordDef, playedPcs: Set<number>, key: KeyDef): 
     big: 'Akkord nicht gefunden',
     small: `Ziel: ${chord.name} – Mulde komplett neu formen.`,
     direction: 0,
+    finger: null,
+    halbtoene: 0,
   };
 }

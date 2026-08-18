@@ -1,12 +1,13 @@
 // Tests der Stufenplan-Empfehlung (B-14, R11), des Migrationspfads (B-17, R25),
-// der Stände je Einheit (B-16, R10) und der getrennten Messung von Griff und
-// Zeit (B-24, R26). Ohne DOM: alles reine Funktionen über gespeicherten Daten.
+// der Stände je Einheit (B-16, R10), der getrennten Messung von Griff und Zeit
+// (B-24, R26) und der finger-aufgelösten Fehlerhistorie (B-25, R27). Ohne DOM:
+// alles reine Funktionen über gespeicherten Daten.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KEYS } from '@/lib/music';
+import { diatonicChords, getKey, tribunal, KEYS } from '@/lib/music';
 import {
-  emptyProgress, folgenUnit, getStand, loadProgress, loadStats, migrateProgress, migrateStats,
-  passTempo, recommendedNext, recordAttempt, stufenUnit, weaknessWeights,
+  chordTotals, emptyProgress, folgenUnit, getStand, loadProgress, loadStats, migrateProgress,
+  migrateStats, passTempo, recommendedNext, recordAttempt, stufenUnit, weaknessWeights,
   SCHEMA_VERSION, START_TEMPO, TARGET_TEMPO, TEMPO_STEP,
   type AttemptRecord, type Progress,
 } from '@/lib/store';
@@ -79,13 +80,15 @@ const erwartetNachMigration: Progress = {
 };
 const leereAufschlüsselung = { attempts: 0, griffOk: 0, timingOk: 0, timingMeasured: 0 };
 const leereStatistik = { errors: {}, timing: {}, attempts: 0, hits: 0, split: leereAufschlüsselung };
-/** Fassung 1–3: dieselben Zahlen, aber ohne die Aufschlüsselung nach R26. */
+/** Fassung 1–3: dieselben Zahlen, aber ohne Aufschlüsselung (R26) und ohne Finger (R27). */
 const alteStatistik = {
   errors: { 'C-dur|C': { high: 2, low: 1, total: 3 } },
   timing: { 'C-dur': [-12, 4] },
   attempts: 9,
   hits: 6,
 };
+/** Dieselben drei Fehler nach der Migration: ein Eintrag, dem Finger `ohne` zugeordnet. */
+const alteFehlerOhneFinger = { 'C-dur|C': { ohne: { high: 2, low: 1, total: 3, halbtoene: 0 } } };
 
 describe('migrateProgress (R25)', () => {
   it('kein Eintrag ist kein Bruch: Standardwerte, Status ok', () => {
@@ -144,28 +147,43 @@ describe('migrateStats (R25)', () => {
     expect(migrateStats(null)).toEqual({ data: leereStatistik, status: 'ok' });
   });
 
+  const migriert = { ...alteStatistik, errors: alteFehlerOhneFinger, split: leereAufschlüsselung };
+
   it('übernimmt die Statistik der Fassung 1', () => {
     expect(migrateStats(JSON.stringify(alteStatistik)))
-      .toEqual({ data: { ...alteStatistik, split: leereAufschlüsselung }, status: 'migriert' });
+      .toEqual({ data: migriert, status: 'migriert' });
   });
 
   it('übernimmt die Statistik der Fassung 2 – gleiche Zahlen, neue Nummer', () => {
     const raw = JSON.stringify({ version: 2, data: alteStatistik });
-    expect(migrateStats(raw))
-      .toEqual({ data: { ...alteStatistik, split: leereAufschlüsselung }, status: 'migriert' });
+    expect(migrateStats(raw)).toEqual({ data: migriert, status: 'migriert' });
   });
 
   // B-24: Anschläge, Treffer, Fehler und Drift kommen unverändert an; nur die
   // Aufschlüsselung beginnt bei null, weil die alten Zahlen sie nicht hergeben.
-  it('übernimmt einen Datensatz der Vorgängerversion ohne Verlust (R25)', () => {
-    const raw = JSON.stringify({ version: 3, data: alteStatistik });
-    const res = migrateStats(raw);
+  it('übernimmt einen Datensatz der Fassung 3 ohne Verlust (R25)', () => {
+    const res = migrateStats(JSON.stringify({ version: 3, data: alteStatistik }));
     expect(res.status).toBe('migriert');
     expect(res.data.attempts).toBe(9);
     expect(res.data.hits).toBe(6);
-    expect(res.data.errors).toEqual(alteStatistik.errors);
+    expect(res.data.errors).toEqual(alteFehlerOhneFinger);
     expect(res.data.timing).toEqual(alteStatistik.timing);
     expect(res.data.split).toEqual(leereAufschlüsselung);
+  });
+
+  // B-25 AK 3: Die Vorgängerversion trennte Griff und Zeit bereits, kannte den
+  // Finger aber nicht. Ihre Zahlen bleiben; die Summe je Akkord stimmt vor und
+  // nach der Migration überein.
+  it('ordnet die Fehler der Vorgängerversion dem Finger `ohne` zu, ohne Verlust', () => {
+    const vorher = { ...alteStatistik, split: { attempts: 9, griffOk: 7, timingOk: 5, timingMeasured: 8 } };
+    const res = migrateStats(JSON.stringify({ version: 4, data: vorher }));
+    expect(res.status).toBe('migriert');
+    expect(res.data.attempts).toBe(9);
+    expect(res.data.hits).toBe(6);
+    expect(res.data.split).toEqual(vorher.split);
+    expect(res.data.errors).toEqual(alteFehlerOhneFinger);
+    expect(chordTotals(res.data.errors['C-dur|C']).total).toBe(alteStatistik.errors['C-dur|C'].total);
+    expect(weaknessWeights(res.data, 'C-dur', ['C'])).toEqual([1 + 3]);
   });
 
   it('fällt bei kaputten Timing-Werten zurück', () => {
@@ -276,6 +294,8 @@ describe('recordAttempt trennt Griff und Zeit (R26)', () => {
       griffOk,
       timingOk,
       direction,
+      finger: null,
+      halbtoene: 0,
       timingOffset: timingOk === null ? null : timingOk ? 5 : 120,
     };
   }
@@ -298,7 +318,7 @@ describe('recordAttempt trennt Griff und Zeit (R26)', () => {
 
   it('erhöht bei einem Fehlgriff genau einen Eintrag der Heatmap (AK 1, AK 3)', () => {
     const s = recordAttempt(loadStats().data, anschlag(false, true, 1));
-    expect(s.errors).toEqual({ 'C-dur|C-Dur': { high: 1, low: 0, total: 1 } });
+    expect(s.errors).toEqual({ 'C-dur|C-Dur': { ohne: { high: 1, low: 0, total: 1, halbtoene: 0 } } });
     expect(weaknessWeights(s, 'C-dur', ['C-Dur', 'G-Dur'])).toEqual([2, 1]);
   });
 
@@ -324,5 +344,72 @@ describe('recordAttempt trennt Griff und Zeit (R26)', () => {
     expect(roh.version).toBe(SCHEMA_VERSION);
     expect(roh.data.attempts).toBe(1);
     expect(loadStats()).toEqual({ data: roh.data, status: 'ok' });
+  });
+});
+
+// ── Fehler je Finger (B-25, R27) ─────────────────────────────────────────────
+
+describe('recordAttempt löst die Fehlerhistorie nach Fingern auf (R27)', () => {
+  let speicher: Storage;
+  beforeEach(() => {
+    speicher = memoryStorage();
+    vi.stubGlobal('localStorage', speicher);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const dDur = getKey('D-dur');
+  const tonika = diatonicChords(dDur)[0];   // D – Fis – A
+
+  /** Der Weg der Akte: das Urteil des Tribunals, so wie die Engine es weiterreicht. */
+  function fehlgriff(gespielt: number[]) {
+    const v = tribunal(tonika, new Set(gespielt), dDur);
+    return {
+      keyId: 'D-dur',
+      chordName: tonika.name,
+      griffOk: false,
+      timingOk: true,
+      direction: v.direction,
+      finger: v.finger,
+      halbtoene: v.halbtoene,
+      timingOffset: 4,
+    };
+  }
+
+  it('schreibt Richtung und Größe unter den Finger des Urteils (AK 1)', () => {
+    // D – Fis – B statt D – Fis – A: die Quinte liegt einen Halbton zu hoch
+    const s = recordAttempt(loadStats().data, fehlgriff([2, 6, 10]));
+    expect(s.errors['D-dur|D-Dur']).toEqual({ '2': { high: 1, low: 0, total: 1, halbtoene: 1 } });
+  });
+
+  it('hält zwei Finger auf demselben Akkord auseinander und bleibt in der Summe ableitbar', () => {
+    let s = recordAttempt(loadStats().data, fehlgriff([2, 6, 10]));   // Quinte +1
+    s = recordAttempt(s, fehlgriff([2, 5, 9]));                       // Terz −1
+    s = recordAttempt(s, fehlgriff([2, 6, 11]));                      // Quinte +2
+    expect(s.errors['D-dur|D-Dur']).toEqual({
+      '1': { high: 0, low: 1, total: 1, halbtoene: 1 },
+      '2': { high: 2, low: 0, total: 2, halbtoene: 3 },
+    });
+    expect(chordTotals(s.errors['D-dur|D-Dur'])).toEqual({ high: 2, low: 1, total: 3, halbtoene: 4 });
+    // Modus C gewichtet über die Summe – dieselbe Wirkung wie vor der Auflösung.
+    expect(weaknessWeights(s, 'D-dur', [tonika.name])).toEqual([4]);
+  });
+
+  it('legt Urteile ohne Finger unter `ohne` ab, statt einen Finger zu behaupten (R4)', () => {
+    // D – Fis – A + C: alle Zieltöne liegen, ein Ton zu viel – kein Finger im Urteil
+    const s = recordAttempt(loadStats().data, fehlgriff([2, 6, 9, 0]));
+    expect(s.errors['D-dur|D-Dur']).toEqual({ ohne: { high: 0, low: 0, total: 1, halbtoene: 0 } });
+  });
+
+  it('nennt bei einem fehlenden Ton den Finger, aber keine Größe', () => {
+    // D – Fis: die Quinte fehlt, ohne dass ein falscher Ton an ihrer Stelle liegt
+    const s = recordAttempt(loadStats().data, fehlgriff([2, 6]));
+    expect(s.errors['D-dur|D-Dur']).toEqual({ '2': { high: 0, low: 0, total: 1, halbtoene: 0 } });
+  });
+
+  it('liest die geschriebene Akte in derselben Form wieder ein (R25)', () => {
+    recordAttempt(loadStats().data, fehlgriff([2, 6, 10]));
+    const geladen = loadStats();
+    expect(geladen.status).toBe('ok');
+    expect(geladen.data.errors['D-dur|D-Dur']).toEqual({ '2': { high: 1, low: 0, total: 1, halbtoene: 1 } });
   });
 });

@@ -27,10 +27,52 @@ export interface UnitRef {
   id: string;
 }
 
-export interface ChordError {
-  high: number;   // zu hoch gegriffen
-  low: number;    // zu tief gegriffen
+/** Abweichungen *eines* Fingers auf einem Akkord (R27, Konzept §6). */
+export interface FingerError {
+  high: number;       // zu hoch gegriffen
+  low: number;        // zu tief gegriffen
   total: number;
+  halbtoene: number;  // Summe der Größen; 0 bei Urteilen ohne Vektor
+}
+
+/** 0 = Grundton · 1 = Terz · 2 = Quinte · `ohne` = Urteil ohne Finger. */
+export type FingerKey = '0' | '1' | '2' | 'ohne';
+
+export const FINGER_KEYS: readonly FingerKey[] = ['0', '1', '2', 'ohne'];
+
+/**
+ * Die Fehler eines Akkords, aufgelöst nach Finger. Unter `ohne` liegen die
+ * Urteile, die keinen Finger nennen – „Ein Ton zu viel", „Akkord nicht
+ * gefunden", die falsche Zone aus Übung 2, der ausgebliebene Anschlag – und
+ * die Einträge älterer Fassungen, die den Finger nicht kannten.
+ */
+export type ChordError = Partial<Record<FingerKey, FingerError>>;
+
+const KEY_OF_FINGER = ['0', '1', '2'] as const;
+
+export function fingerKey(finger: 0 | 1 | 2 | null): FingerKey {
+  return finger === null ? 'ohne' : KEY_OF_FINGER[finger];
+}
+
+/**
+ * Die Summe über die Finger: Die Heatmap zeigt weiter Akkorde (R27), die
+ * Aufschlüsselung steht darunter.
+ */
+export function chordTotals(err: ChordError | undefined): FingerError {
+  const out: FingerError = { high: 0, low: 0, total: 0, halbtoene: 0 };
+  for (const f of fingerErrors(err)) {
+    out.high += f.high;
+    out.low += f.low;
+    out.total += f.total;
+    out.halbtoene += f.halbtoene;
+  }
+  return out;
+}
+
+/** Die belegten Finger eines Akkords, in fester Reihenfolge. */
+export function fingerErrors(err: ChordError | undefined): FingerError[] {
+  if (!err) return [];
+  return FINGER_KEYS.map((k) => err[k]).filter((f): f is FingerError => f !== undefined);
 }
 
 /**
@@ -69,13 +111,14 @@ export const PASS_STREAK = 8;
  * R25: Jeder gespeicherte Datensatz trägt diese Version.
  * 1 = nackte Tonart-Tabelle ohne Hülle · 2 = dieselbe Tabelle in der Hülle
  * `{version,data}` · 3 = Stände je Einheit (B-16) · 4 = Statistik trennt Griff
- * und Zeit (B-24, R26). Alle Wege sind verlustfrei.
+ * und Zeit (B-24, R26) · 5 = Fehler je Finger (B-25, R27). Alle Wege sind
+ * verlustfrei.
  *
  * Die Nummer gilt für beide Fächer. Der Fortschritt hat seine Form seit
  * Fassung 3 nicht geändert; er zieht bei einem Statistik-Bruch mit und wird
  * dabei unverändert übernommen.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Was beim Laden geschah – der Nutzer erfährt es, wenn es nicht `ok` ist. */
 export type LoadStatus = 'ok' | 'migriert' | 'zurückgefallen';
@@ -155,15 +198,43 @@ function fromLegacy(map: Record<string, LegacyKeyProgress>): Progress {
   return { stufen, folgen: {} };
 }
 
-/** Fassung 1–3: dieselben Felder, nur ohne die Aufschlüsselung nach R26. */
-type LegacyStats = Omit<StatsData, 'split'>;
+/** Fassung 1–4: eine Fehlerzahl je Akkord, ohne Finger. */
+interface FlatChordError {
+  high: number;
+  low: number;
+  total: number;
+}
 
-function isLegacyStats(v: unknown): v is LegacyStats {
+/** Fassung 1–3: ohne Finger und ohne die Aufschlüsselung nach R26. */
+interface StatsV3 {
+  errors: Record<string, FlatChordError>;
+  timing: Record<string, number[]>;
+  attempts: number;
+  hits: number;
+}
+
+/** Fassung 4: Griff und Zeit getrennt (B-24), Fehler noch ohne Finger. */
+type StatsV4 = StatsV3 & { split: SplitCount };
+
+function isTimingMap(v: unknown): boolean {
+  return isRecord(v)
+    && Object.values(v).every((t) => Array.isArray(t) && t.every((n) => typeof n === 'number'));
+}
+
+function isFlatChordError(v: unknown): v is FlatChordError {
+  return isRecord(v)
+    && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+}
+
+function isStatsV3(v: unknown): v is StatsV3 {
   return isRecord(v)
     && typeof v.attempts === 'number' && typeof v.hits === 'number'
-    && isRecord(v.errors) && Object.values(v.errors).every(isChordError)
-    && isRecord(v.timing)
-    && Object.values(v.timing).every((t) => Array.isArray(t) && t.every((n) => typeof n === 'number'));
+    && isRecord(v.errors) && Object.values(v.errors).every(isFlatChordError)
+    && isTimingMap(v.timing);
+}
+
+function isStatsV4(v: unknown): v is StatsV4 {
+  return isRecord(v) && isSplitCount(v.split) && isStatsV3(v);
 }
 
 function isSplitCount(v: unknown): v is SplitCount {
@@ -172,13 +243,37 @@ function isSplitCount(v: unknown): v is SplitCount {
     && typeof v.timingOk === 'number' && typeof v.timingMeasured === 'number';
 }
 
-function isStatsData(v: unknown): v is StatsData {
-  return isRecord(v) && isSplitCount(v.split) && isLegacyStats(v);
+function isFingerError(v: unknown): v is FingerError {
+  return isRecord(v)
+    && typeof v.high === 'number' && typeof v.low === 'number'
+    && typeof v.total === 'number' && typeof v.halbtoene === 'number';
 }
 
 function isChordError(v: unknown): v is ChordError {
   return isRecord(v)
-    && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+    && Object.keys(v).every((k) => (FINGER_KEYS as readonly string[]).includes(k))
+    && Object.values(v).every(isFingerError);
+}
+
+function isStatsData(v: unknown): v is StatsData {
+  return isRecord(v)
+    && typeof v.attempts === 'number' && typeof v.hits === 'number'
+    && isSplitCount(v.split)
+    && isRecord(v.errors) && Object.values(v.errors).every(isChordError)
+    && isTimingMap(v.timing);
+}
+
+/**
+ * R27: Ältere Einträge kannten den Finger nicht – sie behaupten ihn auch nach
+ * der Migration nicht (R4) und liegen unter `ohne`. Die Summe je Akkord ist
+ * vor und nach der Migration dieselbe.
+ */
+function fromFlatErrors(errors: Record<string, FlatChordError>): Record<string, ChordError> {
+  const out: Record<string, ChordError> = {};
+  for (const [k, e] of Object.entries(errors)) {
+    out[k] = { ohne: { high: e.high, low: e.low, total: e.total, halbtoene: 0 } };
+  }
+  return out;
 }
 
 /**
@@ -186,8 +281,12 @@ function isChordError(v: unknown): v is ChordError {
  * wurden. Sie enthalten vermischte Ursachen – deshalb beginnt die
  * Aufschlüsselung bei null, statt sie nachträglich zu erfinden (R4, R26).
  */
-function fromLegacyStats(s: LegacyStats): StatsData {
-  return { ...s, split: emptySplit() };
+function fromStatsV3(s: StatsV3): StatsData {
+  return { ...s, errors: fromFlatErrors(s.errors), split: emptySplit() };
+}
+
+function fromStatsV4(s: StatsV4): StatsData {
+  return { ...s, errors: fromFlatErrors(s.errors) };
 }
 
 /** Hülle `{version,data}` erkennen; `null`, wenn der Rohtext keine trägt. */
@@ -240,8 +339,10 @@ export function migrateProgress(raw: string | null): Loaded<Progress> {
 }
 
 /**
- * R25: Rohtext → Statistik. Fassung 1–3 zählten Griff und Zeit in einer Zahl;
- * ihre Werte werden übernommen, die Aufschlüsselung beginnt bei null.
+ * R25: Rohtext → Statistik. Fassung 1–3 zählten Griff und Zeit in einer Zahl,
+ * Fassung 1–4 die Fehler ohne Finger. Beides kommt vollständig an: die Zahlen
+ * bleiben, die Aufschlüsselung beginnt bei null, die alten Fehler liegen unter
+ * dem Finger `ohne`.
  */
 export function migrateStats(raw: string | null): Loaded<StatsData> {
   if (raw === null) return { data: emptyStats(), status: 'ok' };
@@ -250,14 +351,13 @@ export function migrateStats(raw: string | null): Loaded<StatsData> {
 
   const env = envelope(p.value);
   if (env === null) {
-    return isLegacyStats(p.value)
-      ? { data: fromLegacyStats(p.value), status: 'migriert' }
+    return isStatsV3(p.value)
+      ? { data: fromStatsV3(p.value), status: 'migriert' }
       : { data: emptyStats(), status: 'zurückgefallen' };
   }
   if (env.version === SCHEMA_VERSION && isStatsData(env.data)) return { data: env.data, status: 'ok' };
-  if (env.version < SCHEMA_VERSION && isLegacyStats(env.data)) {
-    return { data: fromLegacyStats(env.data), status: 'migriert' };
-  }
+  if (env.version === 4 && isStatsV4(env.data)) return { data: fromStatsV4(env.data), status: 'migriert' };
+  if (env.version < 4 && isStatsV3(env.data)) return { data: fromStatsV3(env.data), status: 'migriert' };
   return { data: emptyStats(), status: 'zurückgefallen' };
 }
 
@@ -357,6 +457,10 @@ export interface AttemptRecord {
   timingOk: boolean | null;
   /** Richtung des Griff-Fehlers: 1 = zu hoch, -1 = zu tief, 0 = ohne Vektor. */
   direction: 1 | -1 | 0;
+  /** Finger des Urteils (R27): 0 Grundton, 1 Terz, 2 Quinte, `null` ohne Finger. */
+  finger: 0 | 1 | 2 | null;
+  /** Größe der Abweichung in Halbtönen; 0, wenn das Urteil ohne Vektor auskam. */
+  halbtoene: number;
   /** Gemessene Landung in ms gegen die Zählzeit; `null`, wenn die Uhr steht. */
   timingOffset: number | null;
 }
@@ -378,12 +482,16 @@ export function recordAttempt(stats: StatsData, a: AttemptRecord): StatsData {
   };
   if (!a.griffOk) {
     const k = `${a.keyId}|${a.chordName}`;
-    const cur = next.errors[k] ?? { high: 0, low: 0, total: 0 };
-    next.errors[k] = {
+    const fk = fingerKey(a.finger);
+    const chord: ChordError = { ...next.errors[k] };
+    const cur = chord[fk] ?? { high: 0, low: 0, total: 0, halbtoene: 0 };
+    chord[fk] = {
       high: cur.high + (a.direction === 1 ? 1 : 0),
       low: cur.low + (a.direction === -1 ? 1 : 0),
       total: cur.total + 1,
+      halbtoene: cur.halbtoene + a.halbtoene,
     };
+    next.errors[k] = chord;
   }
   if (a.timingOffset !== null) {
     const arr = [...(next.timing[a.keyId] ?? []), Math.round(a.timingOffset)];
@@ -396,10 +504,11 @@ export function recordAttempt(stats: StatsData, a: AttemptRecord): StatsData {
 /**
  * Gewichte für Modus C: Akkorde mit mehr Fehlern werden häufiger abgefragt.
  * `errors` enthält seit R26 nur noch Griff-Fehler – Modus C übt damit Griffe,
- * nicht Landungen. Die Signatur bleibt, die Zahlen darin sind andere.
+ * nicht Landungen. Seit R27 stehen sie je Finger; gewichtet wird über ihre
+ * Summe, die Wirkung bleibt dieselbe.
  */
 export function weaknessWeights(stats: StatsData, keyId: string, chordNames: string[]): number[] {
-  return chordNames.map((n) => 1 + (stats.errors[`${keyId}|${n}`]?.total ?? 0));
+  return chordNames.map((n) => 1 + chordTotals(stats.errors[`${keyId}|${n}`]).total);
 }
 
 export function resetAll(): void {

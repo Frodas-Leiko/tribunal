@@ -127,7 +127,47 @@ describe('tribunal', () => {
         expect(v.big.length, `Griff ${[...played].join(',')}`).toBeGreaterThan(0);
         expect(v.small.length, `Griff ${[...played].join(',')}`).toBeGreaterThan(0);
         expect([1, -1, 0], `Griff ${[...played].join(',')}`).toContain(v.direction);
+        // R27: Finger und Größe gehören zum Urteil, nicht nur zum Text.
+        expect([0, 1, 2, null], `Griff ${[...played].join(',')}`).toContain(v.finger);
+        expect(v.halbtoene, `Griff ${[...played].join(',')}`).toBeGreaterThanOrEqual(0);
+        expect(v.halbtoene > 0, `Griff ${[...played].join(',')}`).toBe(v.direction !== 0);
       }
+    });
+  });
+
+  // ── B-25, R27: Das Urteil trägt den Finger, den es ohnehin kennt ──────────
+  describe('Finger und Größe im Urteil (B-25, R27)', () => {
+    it('nennt bei einem Vektor den Finger und die Halbtöne', () => {
+      // D – Fis – B statt D – Fis – A: die Quinte liegt einen Halbton zu hoch
+      const v = tribunal(tonika, new Set([2, 6, 10]), dDur);
+      expect(v.finger).toBe(2);
+      expect(v.halbtoene).toBe(1);
+      expect(v.direction).toBe(1);
+    });
+
+    it('zählt auch größere Abweichungen in Halbtönen', () => {
+      // D – Fis – H: die Quinte liegt zwei Tasten zu hoch
+      const v = tribunal(tonika, new Set([2, 6, 11]), dDur);
+      expect(v.finger).toBe(2);
+      expect(v.halbtoene).toBe(2);
+    });
+
+    it('nennt bei einem fehlenden Ton den Finger, aber keine Größe', () => {
+      const v = tribunal(tonika, new Set([2, 6]), dDur);
+      expect(v.finger).toBe(2);
+      expect(v.halbtoene).toBe(0);
+    });
+
+    it('nennt bei einem überzähligen Ton keinen Finger', () => {
+      const v = tribunal(tonika, new Set([2, 6, 9, 0]), dDur);
+      expect(v.finger).toBeNull();
+      expect(v.halbtoene).toBe(0);
+    });
+
+    it('nennt beim Notnagel keinen Finger', () => {
+      const v = tribunal(tonika, new Set(), dDur);
+      expect(v.finger).toBeNull();
+      expect(v.halbtoene).toBe(0);
     });
   });
 });
