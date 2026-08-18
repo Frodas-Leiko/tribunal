@@ -10,7 +10,7 @@ Je ein Paket pro Chat. Reihenfolge ist verbindlich – jedes Paket setzt auf dem
 | **P1** · Oktaven und Lage | 3 | abgeschlossen (B-07 … B-12); **B-13 ❓** offen |
 | **P2** · Level spielbar, Fortschritt korrekt | 3 | abgeschlossen (B-14 … B-18) |
 | **P3** · Inhalte: Folgen und Moll-Vokabular | 3 | abgeschlossen (B-19 … B-23) |
-| **P4** · Konzepttreue, Messqualität, Aufräumen | 3 | in Arbeit – Pakete 1 und 2 abgeschlossen (B-24 … B-27); B-27 AK 3 offen (kein Zielgerät); **B-30/B-31/B-32 ❓** offen |
+| **P4** · Konzepttreue, Messqualität, Aufräumen | 3 | abgeschlossen (B-24 … B-27, B-29); B-27 AK 3 offen (kein Zielgerät); **B-30/B-31/B-32 ❓** offen |
 
 ---
 
