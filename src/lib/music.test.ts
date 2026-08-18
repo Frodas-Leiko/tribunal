@@ -2,10 +2,10 @@
 // Der Import läuft absichtlich über den Alias `@/` – damit prüft schon dieser
 // Test mit, dass Test- und Build-Auflösung identisch sind.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEGREE_VOCABULARY, KEYS, PROGRESSIONS, chordForDegree, diatonicChords, getKey, pcName,
-  tribunal, type ChordDef,
+  resolveProgression, tribunal, type ChordDef, type ProgressionDef,
 } from '@/lib/music';
 
 describe('deutsche Notennamen (R9)', () => {
@@ -324,5 +324,53 @@ describe('Moll-Wendung (B-19 AK 3)', () => {
     expect(prog.degrees.moll).toEqual(['i', 'VII', 'VI', 'V']);
     expect(prog.degrees.moll.map((d) => chordForDegree(key, d)?.name))
       .toEqual(['A-Moll', 'G-Dur', 'F-Dur', 'E-Dur']);
+  });
+});
+
+// ── Auflösung von Akkordfolgen (B-21, R16) ──────────────────────────────────
+
+describe('resolveProgression', () => {
+  const kaputt: ProgressionDef = {
+    id: 'test-unaufloesbar',
+    name: 'Künstlich fehlerhaft',
+    // `VII` gibt es in Dur nicht – die Folge ist dort nicht auflösbar.
+    degrees: { dur: ['I', 'VII', 'IV', 'V'], moll: ['i', 'VII', 'iv', 'V'] },
+    logic: 'Nur für den Test.',
+    fingeringHint: 'Nur für den Test.',
+  };
+
+  it('löst jede Folge des Bestands in jeder Tonart vollständig auf', () => {
+    for (const key of KEYS) {
+      for (const prog of PROGRESSIONS) {
+        const res = resolveProgression(key, prog);
+        const wo = `${prog.id} in ${key.label}`;
+        expect(res.ok, wo).toBe(true);
+        expect(res.ok && res.chords.length, wo).toBe(prog.degrees[key.mode].length);
+      }
+    }
+  });
+
+  it('kürzt eine fehlerhafte Folge nicht, sondern nennt die fehlenden Stufen (AK 3)', () => {
+    const fehler = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = resolveProgression(getKey('C-dur'), kaputt);
+      expect(res.ok).toBe(false);
+      expect(res.ok === false && res.missing).toEqual(['VII']);
+      // Nicht n−1: es gibt gar keine Kette.
+      expect('chords' in res).toBe(false);
+      // R16: laut – mit Folge, Tonart und Stufe
+      expect(fehler).toHaveBeenCalledTimes(1);
+      expect(String(fehler.mock.calls[0][0])).toContain('test-unaufloesbar');
+      expect(String(fehler.mock.calls[0][0])).toContain('C-Dur');
+      expect(String(fehler.mock.calls[0][0])).toContain('VII');
+    } finally {
+      fehler.mockRestore();
+    }
+  });
+
+  it('löst dieselbe Folge in Moll vollständig auf – dort gibt es VII (R15)', () => {
+    const res = resolveProgression(getKey('A-moll'), kaputt);
+    expect(res.ok).toBe(true);
+    expect(res.ok && res.chords.map((c) => c.name)).toEqual(['A-Moll', 'G-Dur', 'D-Moll', 'E-Dur']);
   });
 });

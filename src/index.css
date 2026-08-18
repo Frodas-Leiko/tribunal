@@ -121,6 +121,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 /* B-16: Stand der Folge in der aktiven Tonart – Messwert, kein Abzeichen (R5). */
 .prog-stand { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 8px; }
 .prog-stand.done { color: var(--green); }
+/* B-21/R16: „nicht verfügbar" ist keine Sperre, sondern eine Unmöglichkeit –
+   die Folge bleibt sichtbar und nennt den Grund, statt zu verschwinden. */
+.prog-unavailable { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 8px; }
 .start-btn {
   margin-top: 14px; width: 100%; padding: 14px;
   background: var(--amber); color: #1c1f24; border: none; border-radius: 8px;

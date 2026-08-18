@@ -1,7 +1,7 @@
 // ── Stufenplan & Session-Setup ───────────────────────────────────────────────
 
-import { useState } from 'react';
-import { KEYS, PROGRESSIONS, MODE_LABELS, type KeyDef, type DictateMode } from '@/lib/music';
+import { useMemo, useState } from 'react';
+import { KEYS, PROGRESSIONS, MODE_LABELS, resolveProgression, type KeyDef, type DictateMode } from '@/lib/music';
 import {
   getStand, isStageComplete, recommendedNext, stufenUnit, folgenUnit,
   PASS_STREAK, START_TEMPO, TARGET_TEMPO, type Progress, type UnitRef,
@@ -39,6 +39,20 @@ export function Home({ progress, onStart, openAudio }: {
 
   const stages = [1, 2, 3, 4, 5];
 
+  // B-21/R16: Eine Folge, deren Stufen es in dieser Tonart nicht gibt, ist nicht
+  // gesperrt – sie ist unmöglich. Das ist keine Ausnahme von R11: Der Akkord
+  // existiert hier schlicht nicht. Sie bleibt sichtbar, aber nicht startbar.
+  const unresolvable = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!selected) return map;
+    for (const p of PROGRESSIONS) {
+      const res = resolveProgression(selected, p);
+      if (!res.ok) map.set(p.id, res.missing);
+    }
+    return map;
+  }, [selected]);
+  const fehlendeStufen = source === 'progression' ? unresolvable.get(progId) ?? null : null;
+
   // R11: Es gibt keine Sperre mehr – nur noch diesen Hinweis auf die nächste
   // Einheit. Er markiert, er verhindert nichts.
   const recommended = recommendedNext(progress);
@@ -62,7 +76,7 @@ export function Home({ progress, onStart, openAudio }: {
   const chooseProg = (id: string) => { setProgId(id); setTempoOverride(null); };
 
   const start = () => {
-    if (!selected) return;
+    if (!selected || fehlendeStufen) return;
     // R18: Der AudioContext entsteht genau hier – im Klick-Handler von
     // „Einheit starten" – und wird an die Session durchgereicht. Später ist die
     // Nutzergeste vorbei und der Kontext bliebe auf Tablets `suspended`.
@@ -174,11 +188,19 @@ export function Home({ progress, onStart, openAudio }: {
               <div className="setup-opts wrap">
                 {PROGRESSIONS.map((p) => {
                   const st = getStand(progress, folgenUnit(selected.id, p.id));
+                  const fehlt = unresolvable.get(p.id);
                   return (
                     <span key={p.id} className="prog-chip">
-                      <button className={progId === p.id ? 'active' : ''} onClick={() => chooseProg(p.id)}>
+                      <button
+                        className={progId === p.id ? 'active' : ''}
+                        onClick={() => chooseProg(p.id)}
+                        disabled={fehlt !== undefined}
+                        title={fehlt ? `Stufe ${fehlt.join(', ')} gibt es in ${selected.label} nicht.` : ''}
+                      >
                         {p.name}{' '}
-                        <em className={`prog-stand ${st.done ? 'done' : ''}`}>{st.done ? '✓' : st.tempo}</em>
+                        {fehlt
+                          ? <em className="prog-unavailable">nicht verfügbar</em>
+                          : <em className={`prog-stand ${st.done ? 'done' : ''}`}>{st.done ? '✓' : st.tempo}</em>}
                       </button>
                       <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: p.id })}>ⓘ</button>
                     </span>
@@ -241,7 +263,14 @@ export function Home({ progress, onStart, openAudio }: {
             </div>
           </div>
 
-          <button className="start-btn" onClick={start}>
+          {fehlendeStufen && (
+            <p className="setup-hint">
+              Diese Folge ist in {selected.label} nicht verfügbar: Stufe {fehlendeStufen.join(', ')} gibt es
+              in dieser Tonart nicht.
+            </p>
+          )}
+
+          <button className="start-btn" onClick={start} disabled={fehlendeStufen !== null}>
             Einheit starten · {effectiveTempo} bpm
           </button>
         </section>

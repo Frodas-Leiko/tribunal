@@ -9,7 +9,7 @@ import {
 import { Metronome, Scheduler, requestWakeLock } from './audio';
 import type { NoteEvent } from './midi';
 import {
-  chordForDegree, diatonicChords, getKey, tribunal,
+  diatonicChords, getKey, resolveProgression, tribunal,
   type ChordDef, type DictateMode, PROGRESSIONS,
 } from './music';
 import { createSessionMachine, type SessionMachine, type SessionState } from './session-state';
@@ -561,11 +561,16 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
     if (config.source === 'progression') {
       const prog = PROGRESSIONS.find((p) => p.id === config.progressionId);
-      // B-19: Aufgelöst wird gegen das vollständige Vokabular (R15), nicht gegen die
-      // Sequenz der Stufen-Modi – `v` und `VII` stehen nur dort. Die stille Kürzung
-      // durch `filter` bleibt bis B-21 stehen.
-      const degrees = prog ? prog.degrees[key.mode] : [];
-      chordsRef.current = degrees.map((d) => chordForDegree(key, d)).filter((c): c is ChordDef => !!c);
+      if (!prog) throw new Error(`Unbekannte Akkordfolge: ${config.progressionId}`);
+      // R16: Entweder die vollständige Kette oder gar keine. Die frühere Suche mit
+      // `filter` hat jede nicht auflösbare Stufe still verworfen – aus acht Gliedern
+      // wurden klanglos sechs. Die Auswahl lässt eine solche Einheit gar nicht erst
+      // starten; hier steht der Riegel für den Fall, dass sie es doch tut.
+      const res = resolveProgression(key, prog);
+      if (!res.ok) {
+        throw new Error(`Akkordfolge „${prog.id}" ist in ${key.label} nicht auflösbar: Stufe ${res.missing.join(', ')}`);
+      }
+      chordsRef.current = res.chords;
     } else {
       chordsRef.current = diatonicChords(key);
     }

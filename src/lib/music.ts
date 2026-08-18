@@ -304,6 +304,45 @@ export const PROGRESSIONS: ProgressionDef[] = [
   },
 ];
 
+// ── Auflösung einer Akkordfolge (R16) ───────────────────────────────────────
+
+/**
+ * Entweder die **vollständige** Akkordkette oder die Liste der Stufen, die es in
+ * dieser Tonart nicht gibt – nie eine gekürzte Kette. Eine still verworfene Stufe
+ * macht aus einer achtgliedrigen Folge klanglos eine siebengliedrige; der Nutzer
+ * übt dann etwas anderes als das, was im Steckbrief steht (R16).
+ */
+export type ProgressionResolution =
+  | { ok: true; chords: ChordDef[] }
+  | { ok: false; missing: string[] };
+
+// Einmal je Folge und Tonart: Die Auswahl fragt bei jedem Rendern nach, die
+// Wiederholung derselben Meldung trägt keine neue Information.
+const reported = new Set<string>();
+
+export function resolveProgression(key: KeyDef, prog: ProgressionDef): ProgressionResolution {
+  const chords: ChordDef[] = [];
+  const missing: string[] = [];
+  for (const degree of prog.degrees[key.mode]) {
+    const chord = chordForDegree(key, degree);
+    if (chord) chords.push(chord);
+    else if (!missing.includes(degree)) missing.push(degree);
+  }
+  if (missing.length === 0) return { ok: true, chords };
+
+  // R16: laut. In der Entwicklung steht die Ursache in der Konsole – mit Folge,
+  // Tonart und Stufe, damit sie ohne Suche im Datensatz zu finden ist.
+  const mark = `${prog.id}|${key.id}`;
+  if (import.meta.env.DEV && !reported.has(mark)) {
+    reported.add(mark);
+    console.error(
+      `Akkordfolge „${prog.id}" ist in ${key.label} nicht auflösbar: `
+      + `Stufe ${missing.join(', ')} gibt es in dieser Tonart nicht (R15, R16).`,
+    );
+  }
+  return { ok: false, missing };
+}
+
 // ── Steckbriefe der Timing-Trainings ────────────────────────────────────────
 
 export const TIMING_BRIEFS = {
