@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { KEYS, PROGRESSIONS, MODE_LABELS, type KeyDef, type DictateMode } from '@/lib/music';
 import {
-  getKeyProgress, isStageComplete, recommendedNext, PASS_STREAK, TARGET_TEMPO, type ProgressMap,
+  getStand, isStageComplete, recommendedNext, stufenUnit, folgenUnit,
+  PASS_STREAK, START_TEMPO, TARGET_TEMPO, type Progress, type UnitRef,
 } from '@/lib/store';
 import type { SessionConfig, ErrorMode } from '@/lib/engine';
 import { ANCHORS, ANCHOR_DEFAULT, anchorLabel } from '@/lib/staff';
@@ -15,7 +16,7 @@ export interface SessionSetup extends SessionConfig {
 }
 
 export function Home({ progress, onStart, openAudio }: {
-  progress: ProgressMap;
+  progress: Progress;
   onStart: (s: SessionSetup, audio: AudioContext) => void;
   openAudio: () => AudioContext;
 }) {
@@ -38,23 +39,18 @@ export function Home({ progress, onStart, openAudio }: {
 
   const stages = [1, 2, 3, 4, 5];
 
-  const selProgress = selected ? getKeyProgress(progress, selected.id) : null;
-
   // R11: Es gibt keine Sperre mehr – nur noch diesen Hinweis auf die nächste
   // Einheit. Er markiert, er verhindert nichts.
   const recommended = recommendedNext(progress);
   const recMode = selected && recommended?.keyId === selected.id ? recommended.mode : null;
 
-  // Tempo-Level aus dem Fortschritt; Slider kann darüber/darunter (freies Tempo)
-  const levelTempo = selected
-    ? source === 'stufen'
-      ? mode === 'A'
-        ? selProgress!.tempoA
-        : mode === 'B'
-          ? selProgress!.tempoB
-          : 60
-      : 60
-    : 60;
+  // B-16: Die gewählte Einheit – Stufen-Modus oder Akkordfolge in dieser Tonart.
+  const unit: UnitRef | null = selected
+    ? (source === 'stufen' ? stufenUnit(selected.id, mode) : folgenUnit(selected.id, progId))
+    : null;
+  // Tempo-Level aus dem Fortschritt; Slider kann darüber/darunter (freies Tempo).
+  // Es kommt für alle Quellen aus dem Speicher – auch für Modus C (AK 4).
+  const levelTempo = unit ? getStand(progress, unit).tempo : START_TEMPO;
   const effectiveTempo = tempoOverride ?? levelTempo;
   // „Freies Tempo" heißt: der Regler steht bewusst neben dem Level (B-15 AK 3).
   const freiesTempo = tempoOverride !== null && tempoOverride !== levelTempo;
@@ -63,6 +59,7 @@ export function Home({ progress, onStart, openAudio }: {
   const chooseKey = (k: KeyDef) => { setSelected(k); setTempoOverride(null); };
   const chooseSource = (s: 'stufen' | 'progression') => { setSource(s); setTempoOverride(null); };
   const chooseMode = (m: DictateMode) => { setMode(m); setTempoOverride(null); };
+  const chooseProg = (id: string) => { setProgId(id); setTempoOverride(null); };
 
   const start = () => {
     if (!selected) return;
@@ -102,7 +99,6 @@ export function Home({ progress, onStart, openAudio }: {
               </div>
               <div className="stage-keys">
                 {KEYS.filter((k) => k.stage === s).map((k) => {
-                  const p = getKeyProgress(progress, k.id);
                   const recKey = recommended?.keyId === k.id;
                   return (
                     <button
@@ -113,8 +109,10 @@ export function Home({ progress, onStart, openAudio }: {
                       <span className="key-name">{k.label}</span>
                       <span className="key-acc">{k.accidentals}</span>
                       <span className="key-badges">
-                        <em className={p.doneA ? 'done' : ''}>A {p.doneA ? '✓' : `${p.tempoA}`}</em>
-                        <em className={p.doneB ? 'done' : ''}>B {p.doneB ? '✓' : `${p.tempoB}`}</em>
+                        {(['A', 'B', 'C'] as DictateMode[]).map((m) => {
+                          const st = getStand(progress, stufenUnit(k.id, m));
+                          return <em key={m} className={st.done ? 'done' : ''}>{m} {st.done ? '✓' : st.tempo}</em>;
+                        })}
                       </span>
                       {recKey && <span className="key-rec">empfohlen · Modus {recommended.mode}</span>}
                       <span
@@ -174,12 +172,18 @@ export function Home({ progress, onStart, openAudio }: {
             <div className="setup-row">
               <span className="setup-label">Folge</span>
               <div className="setup-opts wrap">
-                {PROGRESSIONS.map((p) => (
-                  <span key={p.id} className="prog-chip">
-                    <button className={progId === p.id ? 'active' : ''} onClick={() => setProgId(p.id)}>{p.name}</button>
-                    <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: p.id })}>ⓘ</button>
-                  </span>
-                ))}
+                {PROGRESSIONS.map((p) => {
+                  const st = getStand(progress, folgenUnit(selected.id, p.id));
+                  return (
+                    <span key={p.id} className="prog-chip">
+                      <button className={progId === p.id ? 'active' : ''} onClick={() => chooseProg(p.id)}>
+                        {p.name}{' '}
+                        <em className={`prog-stand ${st.done ? 'done' : ''}`}>{st.done ? '✓' : st.tempo}</em>
+                      </button>
+                      <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: p.id })}>ⓘ</button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -197,7 +201,7 @@ export function Home({ progress, onStart, openAudio }: {
                 className="tempo-slider"
               />
               <span className="tempo-value">{effectiveTempo} bpm</span>
-              {freiesTempo && source === 'stufen' && mode !== 'C' && (
+              {freiesTempo && (
                 <span className="tempo-hint">freies Tempo · Fortschritt zählt auf Level {levelTempo} bpm</span>
               )}
             </div>

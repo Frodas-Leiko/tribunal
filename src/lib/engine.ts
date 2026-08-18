@@ -18,7 +18,8 @@ import {
   type SpelledNote, type Zone,
 } from './staff';
 import {
-  loadStats, recordAttempt, weaknessWeights, passTempo, PASS_STREAK, START_TEMPO,
+  loadStats, recordAttempt, weaknessWeights, passTempo, folgenUnit, stufenUnit,
+  PASS_STREAK, START_TEMPO, TARGET_TEMPO,
   type StatsData,
 } from './store';
 
@@ -72,6 +73,17 @@ const BANNER_MS = 4000;
 function zoneForBeat(beat: number): Zone {
   if (beat % 2 === 0) return 'zentrum';
   return zoneOfShift(Math.floor(beat / 2) % 2 === 0 ? 1 : -1);
+}
+
+/**
+ * Text für eine Einheit, die `TARGET_TEMPO` erreicht hat. Nüchtern (R5): eine
+ * Feststellung, kein Abzeichen.
+ */
+function abschlussText(source: SessionConfig['source'], mode: DictateMode): string {
+  if (source === 'progression') return `Folge abgeschlossen – sie steht bei ${TARGET_TEMPO} bpm.`;
+  if (mode === 'A') return 'Modus A abgeschlossen – Modus B ist jetzt dein Prüfstein.';
+  if (mode === 'B') return 'Modus B abgeschlossen – diese Tonart sitzt.';
+  return 'Modus C abgeschlossen – auch die gewichtete Auswahl sitzt.';
 }
 
 export interface ClockRef {
@@ -205,26 +217,27 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     if (streakRef.current !== PASS_STREAK) return null;
     streakRef.current = 0;
     let banner: string;
-    if (config.source === 'stufen' && config.mode !== 'C') {
+    // B-16: Jede bespielbare Einheit hat einen Stand – Stufen in allen drei Modi,
+    // Folgen je Tonart. Nur ohne Folgen-Kennung gibt es nichts zu buchen.
+    const unit = config.source === 'progression'
+      ? (config.progressionId ? folgenUnit(config.keyId, config.progressionId) : null)
+      : stufenUnit(config.keyId, config.mode);
+    if (unit === null) {
+      banner = `Serie geschafft – ${PASS_STREAK} in Folge.`;
+    } else if (tempoRef.current === levelRef.current) {
       // B-15: Verglichen wird gegen das *mitlaufende* Level, nicht gegen den beim
       // Start eingefrorenen Wert. Sonst zählt ab der zweiten Serie nichts mehr.
-      if (tempoRef.current === levelRef.current) {
-        // R24: Eine Tür. Die Engine kennt keinen Speicher-Schlüssel mehr.
-        const res = passTempo(config.keyId, config.mode);
-        banner = res.justCompleted
-          ? `Modus ${config.mode} abgeschlossen! ${config.mode === 'A' ? 'Modus B ist jetzt dein Prüfstein.' : 'Diese Tonart sitzt.'}`
-          : `Serie geschafft – Tempo-Level steigt auf ${res.newTempo} bpm.`;
-        tempoRef.current = res.newTempo;
-        levelRef.current = res.newTempo;
-      } else {
-        banner = `Serie geschafft – Fortschritt zählt auf Level ${levelRef.current} bpm (freies Tempo: ${tempoRef.current}).`;
-      }
+      // R24: Eine Tür. Die Engine kennt keinen Speicher-Schlüssel mehr.
+      const res = passTempo(unit);
+      banner = res.justCompleted ? abschlussText(config.source, config.mode) : `Serie geschafft – Tempo-Level steigt auf ${res.newTempo} bpm.`;
+      tempoRef.current = res.newTempo;
+      levelRef.current = res.newTempo;
     } else {
-      banner = `Serie geschafft – ${PASS_STREAK} in Folge.`;
+      banner = `Serie geschafft – Fortschritt zählt auf Level ${levelRef.current} bpm (freies Tempo: ${tempoRef.current}).`;
     }
     onPassRef.current();
     return banner;
-  }, [config.source, config.mode, config.keyId]);
+  }, [config.source, config.mode, config.keyId, config.progressionId]);
 
   // ── Banner-Lebensdauer (R22) ──────────────────────────────────────────────
   // Ein Banner verschwindet von selbst – der „Weiter"-Button ist Zugabe, nicht

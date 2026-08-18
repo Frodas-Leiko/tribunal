@@ -118,6 +118,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .setup-opts button.recommended { outline: 1px dashed var(--amber); outline-offset: 2px; }
 .setup-hint { color: var(--amber); font-size: 12px; }
 .prog-chip { display: inline-flex; align-items: center; gap: 0; }
+/* B-16: Stand der Folge in der aktiven Tonart – Messwert, kein Abzeichen (R5). */
+.prog-stand { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 8px; }
+.prog-stand.done { color: var(--green); }
 .start-btn {
   margin-top: 14px; width: 100%; padding: 14px;
   background: var(--amber); color: #1c1f24; border: none; border-radius: 8px;

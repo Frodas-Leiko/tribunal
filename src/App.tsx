@@ -3,7 +3,7 @@ import { Home, type SessionSetup } from './sections/Home';
 import { Session } from './sections/Session';
 import { Stats } from './sections/Stats';
 import { openAudioContext } from './lib/audio';
-import { loadProgress, type ProgressMap } from './lib/store';
+import { loadProgress, type Progress } from './lib/store';
 import '@fontsource/oswald/500.css';
 import '@fontsource/oswald/600.css';
 
@@ -13,7 +13,7 @@ export default function App() {
   const [view, setView] = useState<View>('home');
   const [setup, setSetup] = useState<SessionSetup | null>(null);
   const [audio, setAudio] = useState<AudioContext | null>(null);
-  const [progress, setProgress] = useState<ProgressMap>(() => loadProgress().data);
+  const [progress, setProgress] = useState<Progress>(() => loadProgress().data);
   const audioRef = useRef<AudioContext | null>(null);
 
   const refresh = useCallback(() => setProgress(loadProgress().data), []);

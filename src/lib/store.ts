@@ -2,16 +2,30 @@
 // R24: Diese Datei ist die einzige Tür zum Browser-Speicher. Die Lint-Regel in
 // `eslint.config.js` hält sie zu – `localStorage` außerhalb ist ein Fehler.
 
-import { KEYS } from './music';
+import { KEYS, type DictateMode } from './music';
 
-export interface KeyProgress {
-  tempoA: number;
-  tempoB: number;
-  doneA: boolean;
-  doneB: boolean;
+/** Der Stand genau einer bespielbaren Einheit (B-16). */
+export interface Stand {
+  tempo: number;
+  done: boolean;
 }
 
-export type ProgressMap = Record<string, KeyProgress>;
+/**
+ * R10/R11: Jede spielbare Einheit hat einen messbaren Stand – Stufen-Einheiten
+ * je Tonart und Modus (A/B/C), Folgen-Einheiten je Tonart und Akkordfolge.
+ */
+export interface Progress {
+  stufen: Record<string, Stand>;   // Schlüssel: `${keyId}|${A|B|C}`
+  folgen: Record<string, Stand>;   // Schlüssel: `${keyId}|${progId}`
+}
+
+export type UnitKind = 'stufen' | 'folgen';
+
+/** Zeigt auf genau einen Stand. `passTempo()` kennt nur noch diese Referenz. */
+export interface UnitRef {
+  kind: UnitKind;
+  id: string;
+}
 
 export interface ChordError {
   high: number;   // zu hoch gegriffen
@@ -37,8 +51,12 @@ export const TEMPO_STEP = 4;
 export const TARGET_TEMPO = 100;
 export const PASS_STREAK = 8;
 
-/** R25: Jeder gespeicherte Datensatz trägt diese Version. Fassung 1 trug keine. */
-export const SCHEMA_VERSION = 2;
+/**
+ * R25: Jeder gespeicherte Datensatz trägt diese Version.
+ * 1 = nackte Tonart-Tabelle ohne Hülle · 2 = dieselbe Tabelle in der Hülle
+ * `{version,data}` · 3 = Stände je Einheit (B-16). Alle Wege sind verlustfrei.
+ */
+export const SCHEMA_VERSION = 3;
 
 /** Was beim Laden geschah – der Nutzer erfährt es, wenn es nicht `ok` ist. */
 export type LoadStatus = 'ok' | 'migriert' | 'zurückgefallen';
@@ -48,27 +66,70 @@ export interface Loaded<T> {
   status: LoadStatus;
 }
 
+export function emptyProgress(): Progress {
+  return { stufen: {}, folgen: {} };
+}
+
 function emptyStats(): StatsData {
   return { errors: {}, timing: {}, attempts: 0, hits: 0 };
 }
+
+export function stufenUnit(keyId: string, mode: DictateMode): UnitRef {
+  return { kind: 'stufen', id: `${keyId}|${mode}` };
+}
+
+export function folgenUnit(keyId: string, progId: string): UnitRef {
+  return { kind: 'folgen', id: `${keyId}|${progId}` };
+}
+
+export function getStand(progress: Progress, unit: UnitRef): Stand {
+  return progress[unit.kind][unit.id] ?? { tempo: START_TEMPO, done: false };
+}
+
+// ── Formprüfung und Migration ────────────────────────────────────────────────
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function isKeyProgress(v: unknown): v is KeyProgress {
+function isStand(v: unknown): v is Stand {
+  return isRecord(v) && typeof v.tempo === 'number' && typeof v.done === 'boolean';
+}
+
+function isStandMap(v: unknown): v is Record<string, Stand> {
+  return isRecord(v) && Object.values(v).every(isStand);
+}
+
+function isProgress(v: unknown): v is Progress {
+  return isRecord(v) && isStandMap(v.stufen) && isStandMap(v.folgen);
+}
+
+/** Fassung 1 und 2 trugen vier Felder je Tonart. */
+interface LegacyKeyProgress {
+  tempoA: number;
+  tempoB: number;
+  doneA: boolean;
+  doneB: boolean;
+}
+
+function isLegacyKeyProgress(v: unknown): v is LegacyKeyProgress {
   return isRecord(v)
     && typeof v.tempoA === 'number' && typeof v.tempoB === 'number'
     && typeof v.doneA === 'boolean' && typeof v.doneB === 'boolean';
 }
 
-function isProgressMap(v: unknown): v is ProgressMap {
-  return isRecord(v) && Object.values(v).every(isKeyProgress);
+function isLegacyMap(v: unknown): v is Record<string, LegacyKeyProgress> {
+  return isRecord(v) && Object.values(v).every(isLegacyKeyProgress);
 }
 
-function isChordError(v: unknown): v is ChordError {
-  return isRecord(v)
-    && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+/** Verlustfrei: `tempoA/doneA` → `…|A`, `tempoB/doneB` → `…|B`. */
+function fromLegacy(map: Record<string, LegacyKeyProgress>): Progress {
+  const stufen: Record<string, Stand> = {};
+  for (const [keyId, p] of Object.entries(map)) {
+    stufen[`${keyId}|A`] = { tempo: p.tempoA, done: p.doneA };
+    stufen[`${keyId}|B`] = { tempo: p.tempoB, done: p.doneB };
+  }
+  return { stufen, folgen: {} };
 }
 
 function isStatsData(v: unknown): v is StatsData {
@@ -79,41 +140,74 @@ function isStatsData(v: unknown): v is StatsData {
     && Object.values(v.timing).every((t) => Array.isArray(t) && t.every((n) => typeof n === 'number'));
 }
 
+function isChordError(v: unknown): v is ChordError {
+  return isRecord(v)
+    && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+}
+
+/** Hülle `{version,data}` erkennen; `null`, wenn der Rohtext keine trägt. */
+function envelope(v: unknown): { version: number; data: unknown } | null {
+  if (!isRecord(v) || typeof v.version !== 'number') return null;
+  return { version: v.version, data: v.data };
+}
+
+function parse(raw: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(raw) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
+
 /**
- * R25: Rohtext → Datensatz, mit Migrationspfad und ohne stillen Verlust.
+ * R25: Rohtext → Fortschritt, mit Migrationspfad und ohne stillen Verlust.
  * Rein und ohne Speicherzugriff, damit der Pfad testbar bleibt.
  *
  * - kein Eintrag → Standardwerte, `ok` (nichts gespeichert ist kein Bruch)
- * - Hülle mit aktueller Version und gültigem Inhalt → `ok`
- * - nackter Datensatz ohne Hülle (Fassung 1) → übernommen, `migriert`
+ * - Hülle der aktuellen Version → `ok`
+ * - Fassung 1 (nackt) oder 2 (Hülle um die Tonart-Tabelle) → übernommen, `migriert`
  * - kaputtes JSON, fremde Version, kaputte Felder → Standardwerte,
  *   `zurückgefallen`; der Rohtext bleibt liegen, hier schreibt niemand.
  */
-function migrateRecord<T>(raw: string | null, fallback: T, valid: (v: unknown) => v is T): Loaded<T> {
-  if (raw === null) return { data: fallback, status: 'ok' };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return { data: fallback, status: 'zurückgefallen' };
+export function migrateProgress(raw: string | null): Loaded<Progress> {
+  if (raw === null) return { data: emptyProgress(), status: 'ok' };
+  const p = parse(raw);
+  if (!p.ok) return { data: emptyProgress(), status: 'zurückgefallen' };
+
+  const env = envelope(p.value);
+  if (env === null) {
+    return isLegacyMap(p.value)
+      ? { data: fromLegacy(p.value), status: 'migriert' }
+      : { data: emptyProgress(), status: 'zurückgefallen' };
   }
-  if (isRecord(parsed) && typeof parsed.version === 'number') {
-    return parsed.version === SCHEMA_VERSION && valid(parsed.data)
-      ? { data: parsed.data, status: 'ok' }
-      : { data: fallback, status: 'zurückgefallen' };
+  if (env.version === SCHEMA_VERSION && isProgress(env.data)) {
+    return { data: env.data, status: 'ok' };
   }
-  return valid(parsed)
-    ? { data: parsed, status: 'migriert' }
-    : { data: fallback, status: 'zurückgefallen' };
+  if (env.version === 2 && isLegacyMap(env.data)) {
+    return { data: fromLegacy(env.data), status: 'migriert' };
+  }
+  return { data: emptyProgress(), status: 'zurückgefallen' };
 }
 
-export function migrateProgress(raw: string | null): Loaded<ProgressMap> {
-  return migrateRecord(raw, {}, isProgressMap);
-}
-
+/** Die Statistik behielt ihre Form; nur die Versionsnummer zog mit (2 → 3). */
 export function migrateStats(raw: string | null): Loaded<StatsData> {
-  return migrateRecord(raw, emptyStats(), isStatsData);
+  if (raw === null) return { data: emptyStats(), status: 'ok' };
+  const p = parse(raw);
+  if (!p.ok) return { data: emptyStats(), status: 'zurückgefallen' };
+
+  const env = envelope(p.value);
+  if (env === null) {
+    return isStatsData(p.value)
+      ? { data: p.value, status: 'migriert' }
+      : { data: emptyStats(), status: 'zurückgefallen' };
+  }
+  if (!isStatsData(env.data)) return { data: emptyStats(), status: 'zurückgefallen' };
+  if (env.version === SCHEMA_VERSION) return { data: env.data, status: 'ok' };
+  if (env.version === 2) return { data: env.data, status: 'migriert' };
+  return { data: emptyStats(), status: 'zurückgefallen' };
 }
+
+// ── Speicherzugriff ──────────────────────────────────────────────────────────
 
 function readRaw(key: string): string | null {
   try {
@@ -132,43 +226,37 @@ function save(key: string, data: unknown): void {
   }
 }
 
-export function loadProgress(): Loaded<ProgressMap> {
+export function loadProgress(): Loaded<Progress> {
   return migrateProgress(readRaw(P_KEY));
 }
 
-export function getKeyProgress(map: ProgressMap, keyId: string): KeyProgress {
-  return map[keyId] ?? { tempoA: START_TEMPO, tempoB: START_TEMPO, doneA: false, doneB: false };
-}
-
 /**
- * Nach bestandener Einheit: Tempo hoch oder Modus als geschafft markieren.
+ * Nach bestandener Einheit: Tempo hoch oder Einheit als geschafft markieren.
+ * Die Rampe ist für Stufen und Folgen dieselbe (R10).
  * R24: Die Funktion holt den Stand selbst und schreibt ihn selbst zurück – der
  * Aufrufer kennt weder Schlüssel noch Speicher.
  */
-export function passTempo(keyId: string, mode: 'A' | 'B'): { map: ProgressMap; newTempo: number; justCompleted: boolean } {
-  const map = loadProgress().data;
-  const cur = getKeyProgress(map, keyId);
-  const next: ProgressMap = { ...map };
-  const upd = { ...cur };
+export function passTempo(unit: UnitRef): { progress: Progress; newTempo: number; justCompleted: boolean } {
+  const progress = loadProgress().data;
+  const upd: Stand = { ...getStand(progress, unit) };
   let justCompleted = false;
-  if (mode === 'A') {
-    if (upd.tempoA >= TARGET_TEMPO) { upd.doneA = true; justCompleted = true; }
-    else upd.tempoA = Math.min(TARGET_TEMPO, upd.tempoA + TEMPO_STEP);
+  if (upd.tempo >= TARGET_TEMPO) {
+    upd.done = true;
+    justCompleted = true;
   } else {
-    if (upd.tempoB >= TARGET_TEMPO) { upd.doneB = true; justCompleted = true; }
-    else upd.tempoB = Math.min(TARGET_TEMPO, upd.tempoB + TEMPO_STEP);
+    upd.tempo = Math.min(TARGET_TEMPO, upd.tempo + TEMPO_STEP);
   }
-  next[keyId] = upd;
+  const next: Progress = { stufen: { ...progress.stufen }, folgen: { ...progress.folgen } };
+  next[unit.kind] = { ...next[unit.kind], [unit.id]: upd };
   save(P_KEY, next);
-  return { map: next, newTempo: mode === 'A' ? upd.tempoA : upd.tempoB, justCompleted };
+  return { progress: next, newTempo: upd.tempo, justCompleted };
 }
 
-export function isStageComplete(map: ProgressMap, stage: number): boolean {
+/** Eine Stufe steht, wenn beide Tonarten in Modus A und B stehen (Konzept §5.1). */
+export function isStageComplete(progress: Progress, stage: number): boolean {
   const keys = KEYS.filter((k) => k.stage === stage);
-  return keys.length > 0 && keys.every((k) => {
-    const p = getKeyProgress(map, k.id);
-    return p.doneA && p.doneB;
-  });
+  return keys.length > 0 && keys.every((k) =>
+    getStand(progress, stufenUnit(k.id, 'A')).done && getStand(progress, stufenUnit(k.id, 'B')).done);
 }
 
 export interface Recommendation {
@@ -181,15 +269,15 @@ export interface Recommendation {
  * R11: Der Stufenplan empfiehlt, statt zu sperren. Empfohlen ist die erste nicht
  * abgeschlossene Stufe, darin die erste Tonart mit offenem Modus – Modus A vor
  * Modus B. Steht alles, gibt es nichts mehr zu empfehlen (`null`).
+ * Modus C ist adaptives Training und steht bewusst außerhalb der Empfehlung.
  */
-export function recommendedNext(map: ProgressMap): Recommendation | null {
+export function recommendedNext(progress: Progress): Recommendation | null {
   const stages = [...new Set(KEYS.map((k) => k.stage))].sort((a, b) => a - b);
   for (const stage of stages) {
-    if (isStageComplete(map, stage)) continue;
+    if (isStageComplete(progress, stage)) continue;
     for (const k of KEYS.filter((key) => key.stage === stage)) {
-      const p = getKeyProgress(map, k.id);
-      if (!p.doneA) return { stage, keyId: k.id, mode: 'A' };
-      if (!p.doneB) return { stage, keyId: k.id, mode: 'B' };
+      if (!getStand(progress, stufenUnit(k.id, 'A')).done) return { stage, keyId: k.id, mode: 'A' };
+      if (!getStand(progress, stufenUnit(k.id, 'B')).done) return { stage, keyId: k.id, mode: 'B' };
     }
   }
   return null;
