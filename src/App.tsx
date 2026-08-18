@@ -46,6 +46,14 @@ export default function App() {
         </nav>
       </header>
 
+      {/* B-27/AK 2: Querformat ist der einzige gestaltete Zustand (R6). Der Hinweis
+          nennt, was zu tun ist, und blockiert nichts – ein gedrehtes Tablet ist kein
+          Fehlerzustand, der die Eingabe abschneiden dürfte (R22). Sichtbar wird er
+          allein über die Medienabfrage in `index.css`. */}
+      <div className="rotate-hint" role="note">
+        Hochformat: Bitte das Gerät ins Querformat drehen – das Cockpit ist für die Breite gebaut.
+      </div>
+
       {view === 'home' && <Home progress={progress} onStart={startSession} openAudio={openAudio} />}
       {view === 'session' && setup && audio && (
         <Session setup={setup} audio={audio} onExit={() => { refresh(); setView('home'); }} onProgressChanged={refresh} />

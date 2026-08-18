@@ -16,7 +16,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
   onExit: () => void;
   onProgressChanged: () => void;
 }) {
-  const { hud, start, stop, handleNote, clockRef, clearBanner } = useSession(setup, onProgressChanged, audio);
+  const { hud, start, stop, handleNote, clockRef, clearBanner, refreshWakeLock } = useSession(setup, onProgressChanged, audio);
   const input = useNoteInput(useCallback((ev) => handleNote(ev), [handleNote]));
 
   const [audioState, setAudioState] = useState<AudioContextState>(audio.state);
@@ -40,8 +40,13 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
       armIfReady();
     };
     const onVisible = () => {
-      // R18: Rückkehr auf sichtbar – Kontext prüfen und fortsetzen, statt stehenzubleiben.
-      if (document.visibilityState === 'visible' && audio.state !== 'running') void audio.resume();
+      if (document.visibilityState === 'visible') {
+        // R18: Rückkehr auf sichtbar – Kontext prüfen und fortsetzen, statt stehenzubleiben.
+        if (audio.state !== 'running') void audio.resume();
+        // B-27/AK 1: Der Browser hat die Bildschirmsperre beim Verlassen des Tabs
+        // freigegeben – hier wird sie zurückgeholt (Konzept §10.5).
+        refreshWakeLock();
+      }
       sync();
     };
     audio.addEventListener('statechange', sync);
@@ -53,7 +58,7 @@ export function Session({ setup, audio, onExit, onProgressChanged }: {
       stop();
       startedRef.current = false; // StrictMode montiert doppelt: der zweite Lauf startet erneut
     };
-  }, [audio, armIfReady, stop]);
+  }, [audio, armIfReady, stop, refreshWakeLock]);
 
   const key = getKey(setup.keyId);
   const prog = setup.source === 'progression'

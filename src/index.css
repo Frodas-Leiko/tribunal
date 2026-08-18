@@ -327,9 +327,12 @@ html.scroll-lock body { height: 100vh; overflow: hidden; }
 .stats-danger { margin-top: 34px; }
 .danger-btn { background: none; border: 1px solid var(--red); color: var(--red); border-radius: 6px; padding: 8px 14px; cursor: pointer; }
 
-/* ── Portrait-Hinweis ── */
+/* ── Portrait-Hinweis (B-27, R6) ── */
+/* Ohne Breitengrenze: Das Zielgerät ist ein Tablet und misst im Hochformat rund
+   768–834 px – ein `max-width: 700px` hätte den Hinweis ausgerechnet dort verschwiegen,
+   wo er hingehört. Der Hinweis ersetzt nichts und blockiert nichts (R22). */
 .rotate-hint { display: none; }
-@media (orientation: portrait) and (max-width: 700px) {
+@media (orientation: portrait) {
   .session-main { justify-content: flex-start; }
   .rotate-hint {
     display: block; text-align: center; color: var(--amber);

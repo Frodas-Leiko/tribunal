@@ -6,7 +6,7 @@ import {
   ATTEMPT_GAP_MS, attemptCapMs, attemptForBeat, evalWindowMs, groupAttempts,
   type Attempt,
 } from './attempt';
-import { Metronome, Scheduler, requestWakeLock } from './audio';
+import { Metronome, Scheduler, ScreenWakeLock } from './audio';
 import type { NoteEvent } from './midi';
 import {
   diatonicChords, getKey, resolveProgression, tribunal,
@@ -103,6 +103,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
   const metroRef = useRef<Metronome | null>(null);
   const schedRef = useRef<Scheduler | null>(null);
+  // B-27: Die Bildschirmsperre gehört der laufenden Einheit, nicht der App –
+  // wer im Stufenplan liest, braucht keinen erzwungen wachen Bildschirm (R7).
+  const wakeRef = useRef<ScreenWakeLock | null>(null);
   const tempoRef = useRef(START_TEMPO);
   // B-15: Das Fortschritts-Level der laufenden Einheit. Es steigt mit jeder
   // bestandenen Serie – `config.levelTempo` ist nur der Startwert.
@@ -649,12 +652,25 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       state: machine.state,
     });
 
-    void requestWakeLock();
+    // Konzept §10.5: Der Bildschirm bleibt wach, solange die Einheit läuft.
+    const wake = wakeRef.current ?? new ScreenWakeLock();
+    wakeRef.current = wake;
+    void wake.acquire();
   }, [config, key, nextChord, audio, getMachine]);
+
+  /**
+   * B-27/AK 1: Browser geben Wake Locks beim Verlassen des Tabs frei. `Session`
+   * ruft das bei `visibilitychange` zurück auf sichtbar auf – an derselben Stelle,
+   * an der R18 den AudioContext prüft. Ohne laufende Einheit passiert nichts.
+   */
+  const refreshWakeLock = useCallback(() => {
+    void wakeRef.current?.refresh();
+  }, []);
 
   const stop = useCallback(() => {
     getMachine().to('ENDED'); // R17: räumt Scheduler, Timer, Puffer und Uhr auf
     metroRef.current = null; // R18/AK 4: kein Metronom überlebt einen Stopp
+    void wakeRef.current?.release(); // B-27/AK 1: die Sperre überlebt die Einheit nicht
   }, [getMachine]);
 
   useEffect(() => stop, [stop]);
@@ -692,5 +708,5 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     }, wait);
   }, [getMachine, beatDurMs, closeAttempt, clearBanner]);
 
-  return { hud, start, stop, handleNote, clockRef, clearBanner };
+  return { hud, start, stop, handleNote, clockRef, clearBanner, refreshWakeLock };
 }

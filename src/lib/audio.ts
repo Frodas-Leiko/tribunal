@@ -146,16 +146,112 @@ export class Scheduler {
 }
 
 // ── Wake Lock ───────────────────────────────────────────────────────────────
+// Konzept §10.5: „Das Tablet geht während einer Übung nicht in den Standby."
+// Der Browser gibt eine Bildschirmsperre frei, sobald der Tab in den Hintergrund
+// geht. Ohne gehaltenen Sentinel gibt es danach niemanden mehr, der sie zurückholt –
+// und niemanden, der sie beim Verlassen der Einheit wieder abgibt (R7: das Gerät
+// gehört dem Nutzer).
 
-export async function requestWakeLock(): Promise<boolean> {
-  try {
-    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<unknown> } };
-    if (nav.wakeLock) {
-      await nav.wakeLock.request('screen');
-      return true;
-    }
-  } catch {
-    /* nicht verfügbar */
+/** Der Teil eines `WakeLockSentinel`, den diese Schicht braucht – so ist sie ohne DOM prüfbar. */
+export interface WakeLockSentinelLike {
+  readonly released: boolean;
+  release(): Promise<void>;
+}
+
+/** `navigator.wakeLock.request` in der Form, die diese Schicht erwartet. */
+export type WakeLockRequest = (type: 'screen') => Promise<WakeLockSentinelLike>;
+
+/**
+ * Die Wake-Lock-API dieses Browsers – oder `null`, wenn es keine gibt. Der Grund
+ * für `null` ist kein Fehler: Firefox und ältere iPads kennen die API schlicht
+ * nicht, die Einheit läuft dort ohne Sperre weiter.
+ */
+export function browserWakeLock(): WakeLockRequest | null {
+  const nav = navigator as Navigator & { wakeLock?: { request: WakeLockRequest } };
+  const api = nav.wakeLock;
+  return api ? (type) => api.request(type) : null;
+}
+
+/**
+ * Hält **genau einen** Bildschirm-Sentinel, solange die Einheit läuft.
+ *
+ * - `acquire()` ist idempotent: ein zweites Anfordern öffnet keinen zweiten Sentinel.
+ * - `refresh()` holt die Sperre zurück, die der Browser beim Tab-Wechsel freigegeben
+ *   hat – aber nur, wenn sie überhaupt noch gewollt ist.
+ * - `release()` gibt sie ausdrücklich ab; danach fordert `refresh()` nichts mehr an.
+ */
+export class ScreenWakeLock {
+  private request: WakeLockRequest | null;
+  private sentinel: WakeLockSentinelLike | null = null;
+  /** Gewollt = zwischen `acquire()` und `release()`. Nur dann erneuert `refresh()`. */
+  private wanted = false;
+  /** Ein laufendes Anfordern; ein zweiter Aufruf hängt sich an, statt zu verdoppeln. */
+  private pending: Promise<void> | null = null;
+
+  constructor(request: WakeLockRequest | null = browserWakeLock()) {
+    this.request = request;
   }
-  return false;
+
+  /** Steht die Sperre? Ein vom Browser freigegebener Sentinel zählt nicht. */
+  held(): boolean {
+    return this.sentinel !== null && !this.sentinel.released;
+  }
+
+  /** Fordert die Sperre an und merkt sich, dass sie gewollt ist. */
+  async acquire(): Promise<boolean> {
+    this.wanted = true;
+    return this.open();
+  }
+
+  /**
+   * Rückkehr auf sichtbar: der Browser hat die Sperre beim Verlassen des Tabs
+   * freigegeben. Ohne laufende Einheit passiert hier nichts.
+   */
+  async refresh(): Promise<boolean> {
+    if (!this.wanted) return false;
+    return this.open();
+  }
+
+  /** Gibt die Sperre ab. Der Bildschirm gehört danach wieder dem Gerät (R7). */
+  async release(): Promise<void> {
+    this.wanted = false;
+    const sentinel = this.sentinel;
+    this.sentinel = null;
+    if (!sentinel || sentinel.released) return;
+    try {
+      await sentinel.release();
+    } catch {
+      // Freigeben kann scheitern, wenn der Browser den Sentinel längst selbst
+      // eingezogen hat. Die Referenz ist oben bereits weg – mehr ist nicht zu tun.
+    }
+  }
+
+  private async open(): Promise<boolean> {
+    const request = this.request;
+    if (request === null) return false;   // Browser ohne Wake-Lock-API
+    if (this.held()) return true;
+    if (this.pending === null) {
+      this.pending = this.openOnce(request).finally(() => { this.pending = null; });
+    }
+    await this.pending;
+    return this.held();
+  }
+
+  private async openOnce(request: WakeLockRequest): Promise<void> {
+    try {
+      const sentinel = await request('screen');
+      // Zwischen Anfordern und Antwort kann die Einheit beendet worden sein –
+      // dann wird der frische Sentinel sofort wieder abgegeben, nicht gehalten.
+      if (!this.wanted) {
+        void sentinel.release();
+        return;
+      }
+      this.sentinel = sentinel;
+    } catch {
+      // Der Browser darf die Sperre verweigern: kein sicherer Kontext, Akkusparmodus,
+      // Berechtigungsregel. Konzept §10.5 ist dann nicht erfüllbar – die Einheit
+      // läuft trotzdem weiter (R7), ohne Meldung, weil der Nutzer nichts tun kann.
+      this.sentinel = null;
+    }
+  }
 }
