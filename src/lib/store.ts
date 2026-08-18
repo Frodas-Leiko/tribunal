@@ -33,11 +33,25 @@ export interface ChordError {
   total: number;
 }
 
+/**
+ * R26: Die Aufschlüsselung der Trefferquote in Griff und Zeit. Sie zählt
+ * getrennt von `attempts`/`hits`, weil ältere Datensätze beides in einer Zahl
+ * vermischt haben – ihre Anschläge zählen hier nicht mit, statt eine
+ * Aufteilung zu behaupten, die nie gemessen wurde (R4).
+ */
+export interface SplitCount {
+  attempts: number;         // Anschläge, die getrennt gezählt wurden
+  griffOk: number;          // davon mit sitzendem Griff
+  timingOk: number;         // davon im Toleranzfenster
+  timingMeasured: number;   // Anschläge mit gemessener Zeit (Nenner der Zeit-Quote)
+}
+
 export interface StatsData {
-  errors: Record<string, ChordError>;   // Schlüssel: `${keyId}|${chordName}`
+  errors: Record<string, ChordError>;   // Schlüssel: `${keyId}|${chordName}`; nur Griff-Fehler (R26)
   timing: Record<string, number[]>;     // Schlüssel: keyId → letzte 60 Offsets (ms)
   attempts: number;
-  hits: number;
+  hits: number;                         // Ton *und* Zeit – die Quote des Konzepts
+  split: SplitCount;
 }
 
 // Die Schlüsselnamen stammen aus der ersten Fassung und bleiben, damit vorhandener
@@ -54,9 +68,14 @@ export const PASS_STREAK = 8;
 /**
  * R25: Jeder gespeicherte Datensatz trägt diese Version.
  * 1 = nackte Tonart-Tabelle ohne Hülle · 2 = dieselbe Tabelle in der Hülle
- * `{version,data}` · 3 = Stände je Einheit (B-16). Alle Wege sind verlustfrei.
+ * `{version,data}` · 3 = Stände je Einheit (B-16) · 4 = Statistik trennt Griff
+ * und Zeit (B-24, R26). Alle Wege sind verlustfrei.
+ *
+ * Die Nummer gilt für beide Fächer. Der Fortschritt hat seine Form seit
+ * Fassung 3 nicht geändert; er zieht bei einem Statistik-Bruch mit und wird
+ * dabei unverändert übernommen.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Was beim Laden geschah – der Nutzer erfährt es, wenn es nicht `ok` ist. */
 export type LoadStatus = 'ok' | 'migriert' | 'zurückgefallen';
@@ -70,8 +89,12 @@ export function emptyProgress(): Progress {
   return { stufen: {}, folgen: {} };
 }
 
+function emptySplit(): SplitCount {
+  return { attempts: 0, griffOk: 0, timingOk: 0, timingMeasured: 0 };
+}
+
 function emptyStats(): StatsData {
-  return { errors: {}, timing: {}, attempts: 0, hits: 0 };
+  return { errors: {}, timing: {}, attempts: 0, hits: 0, split: emptySplit() };
 }
 
 export function stufenUnit(keyId: string, mode: DictateMode): UnitRef {
@@ -132,7 +155,10 @@ function fromLegacy(map: Record<string, LegacyKeyProgress>): Progress {
   return { stufen, folgen: {} };
 }
 
-function isStatsData(v: unknown): v is StatsData {
+/** Fassung 1–3: dieselben Felder, nur ohne die Aufschlüsselung nach R26. */
+type LegacyStats = Omit<StatsData, 'split'>;
+
+function isLegacyStats(v: unknown): v is LegacyStats {
   return isRecord(v)
     && typeof v.attempts === 'number' && typeof v.hits === 'number'
     && isRecord(v.errors) && Object.values(v.errors).every(isChordError)
@@ -140,9 +166,28 @@ function isStatsData(v: unknown): v is StatsData {
     && Object.values(v.timing).every((t) => Array.isArray(t) && t.every((n) => typeof n === 'number'));
 }
 
+function isSplitCount(v: unknown): v is SplitCount {
+  return isRecord(v)
+    && typeof v.attempts === 'number' && typeof v.griffOk === 'number'
+    && typeof v.timingOk === 'number' && typeof v.timingMeasured === 'number';
+}
+
+function isStatsData(v: unknown): v is StatsData {
+  return isRecord(v) && isSplitCount(v.split) && isLegacyStats(v);
+}
+
 function isChordError(v: unknown): v is ChordError {
   return isRecord(v)
     && typeof v.high === 'number' && typeof v.low === 'number' && typeof v.total === 'number';
+}
+
+/**
+ * Verlustfrei: Anschläge, Treffer, Fehler und Drift bleiben, wie sie gezählt
+ * wurden. Sie enthalten vermischte Ursachen – deshalb beginnt die
+ * Aufschlüsselung bei null, statt sie nachträglich zu erfinden (R4, R26).
+ */
+function fromLegacyStats(s: LegacyStats): StatsData {
+  return { ...s, split: emptySplit() };
 }
 
 /** Hülle `{version,data}` erkennen; `null`, wenn der Rohtext keine trägt. */
@@ -183,13 +228,21 @@ export function migrateProgress(raw: string | null): Loaded<Progress> {
   if (env.version === SCHEMA_VERSION && isProgress(env.data)) {
     return { data: env.data, status: 'ok' };
   }
+  // Die Stände haben ihre Form seit Fassung 3; hochgezogen hat sie ein Bruch im
+  // anderen Fach (B-24). Ein solcher Datensatz ist vollständig, nur älter.
+  if (env.version < SCHEMA_VERSION && isProgress(env.data)) {
+    return { data: env.data, status: 'migriert' };
+  }
   if (env.version === 2 && isLegacyMap(env.data)) {
     return { data: fromLegacy(env.data), status: 'migriert' };
   }
   return { data: emptyProgress(), status: 'zurückgefallen' };
 }
 
-/** Die Statistik behielt ihre Form; nur die Versionsnummer zog mit (2 → 3). */
+/**
+ * R25: Rohtext → Statistik. Fassung 1–3 zählten Griff und Zeit in einer Zahl;
+ * ihre Werte werden übernommen, die Aufschlüsselung beginnt bei null.
+ */
 export function migrateStats(raw: string | null): Loaded<StatsData> {
   if (raw === null) return { data: emptyStats(), status: 'ok' };
   const p = parse(raw);
@@ -197,13 +250,14 @@ export function migrateStats(raw: string | null): Loaded<StatsData> {
 
   const env = envelope(p.value);
   if (env === null) {
-    return isStatsData(p.value)
-      ? { data: p.value, status: 'migriert' }
+    return isLegacyStats(p.value)
+      ? { data: fromLegacyStats(p.value), status: 'migriert' }
       : { data: emptyStats(), status: 'zurückgefallen' };
   }
-  if (!isStatsData(env.data)) return { data: emptyStats(), status: 'zurückgefallen' };
-  if (env.version === SCHEMA_VERSION) return { data: env.data, status: 'ok' };
-  if (env.version === 2) return { data: env.data, status: 'migriert' };
+  if (env.version === SCHEMA_VERSION && isStatsData(env.data)) return { data: env.data, status: 'ok' };
+  if (env.version < SCHEMA_VERSION && isLegacyStats(env.data)) {
+    return { data: fromLegacyStats(env.data), status: 'migriert' };
+  }
   return { data: emptyStats(), status: 'zurückgefallen' };
 }
 
@@ -289,38 +343,61 @@ export function loadStats(): Loaded<StatsData> {
   return migrateStats(readRaw(S_KEY));
 }
 
-export function recordAttempt(
-  stats: StatsData,
-  keyId: string,
-  chordName: string,
-  pitchOk: boolean,
-  direction: 1 | -1 | 0, // 1 = zu hoch, -1 = zu tief, 0 = korrekt/ohne Vektor
-  timingOffset: number | null,
-): StatsData {
+/**
+ * Ein bewerteter Anschlag. R26 hält Griff und Zeit auseinander: der Griff geht
+ * in die Fehler-Heatmap, die Zeit in die Drift-Linie, und keiner der beiden
+ * Werte schreibt in das Fach des anderen.
+ */
+export interface AttemptRecord {
+  keyId: string;
+  chordName: string;
+  /** Tonhöhenklassen und – in Übung 2 – die Zone: der Block gehört zur Hand (R13). */
+  griffOk: boolean;
+  /** `null` = nicht gemessen (stehende Uhr). Nicht gemessen ist nicht bestanden (R4). */
+  timingOk: boolean | null;
+  /** Richtung des Griff-Fehlers: 1 = zu hoch, -1 = zu tief, 0 = ohne Vektor. */
+  direction: 1 | -1 | 0;
+  /** Gemessene Landung in ms gegen die Zählzeit; `null`, wenn die Uhr steht. */
+  timingOffset: number | null;
+}
+
+export function recordAttempt(stats: StatsData, a: AttemptRecord): StatsData {
   const next: StatsData = {
     errors: { ...stats.errors },
     timing: { ...stats.timing },
     attempts: stats.attempts + 1,
-    hits: stats.hits + (pitchOk ? 1 : 0),
+    // Die Quote des Konzepts ist Ton *und* Zeit – eine nicht gemessene Zeit
+    // besteht sie nicht (R4).
+    hits: stats.hits + (a.griffOk && a.timingOk === true ? 1 : 0),
+    split: {
+      attempts: stats.split.attempts + 1,
+      griffOk: stats.split.griffOk + (a.griffOk ? 1 : 0),
+      timingOk: stats.split.timingOk + (a.timingOk === true ? 1 : 0),
+      timingMeasured: stats.split.timingMeasured + (a.timingOk !== null ? 1 : 0),
+    },
   };
-  if (!pitchOk) {
-    const k = `${keyId}|${chordName}`;
+  if (!a.griffOk) {
+    const k = `${a.keyId}|${a.chordName}`;
     const cur = next.errors[k] ?? { high: 0, low: 0, total: 0 };
     next.errors[k] = {
-      high: cur.high + (direction === 1 ? 1 : 0),
-      low: cur.low + (direction === -1 ? 1 : 0),
+      high: cur.high + (a.direction === 1 ? 1 : 0),
+      low: cur.low + (a.direction === -1 ? 1 : 0),
       total: cur.total + 1,
     };
   }
-  if (timingOffset !== null) {
-    const arr = [...(next.timing[keyId] ?? []), Math.round(timingOffset)];
-    next.timing[keyId] = arr.slice(-60);
+  if (a.timingOffset !== null) {
+    const arr = [...(next.timing[a.keyId] ?? []), Math.round(a.timingOffset)];
+    next.timing[a.keyId] = arr.slice(-60);
   }
   save(S_KEY, next);
   return next;
 }
 
-/** Gewichte für Modus C: Akkorde mit mehr Fehlern werden häufiger abgefragt. */
+/**
+ * Gewichte für Modus C: Akkorde mit mehr Fehlern werden häufiger abgefragt.
+ * `errors` enthält seit R26 nur noch Griff-Fehler – Modus C übt damit Griffe,
+ * nicht Landungen. Die Signatur bleibt, die Zahlen darin sind andere.
+ */
 export function weaknessWeights(stats: StatsData, keyId: string, chordNames: string[]): number[] {
   return chordNames.map((n) => 1 + (stats.errors[`${keyId}|${n}`]?.total ?? 0));
 }

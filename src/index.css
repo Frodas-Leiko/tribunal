@@ -313,6 +313,8 @@ html.scroll-lock body { height: 100vh; overflow: hidden; }
 .stat-card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 26px; background: rgba(35, 39, 46, 0.6); }
 .stat-num { font-family: 'Oswald', sans-serif; font-size: 36px; font-weight: 600; }
 .stat-label { color: var(--dim); font-size: 13px; }
+/* R26: Griff- und Zeit-Anteil unter der Quote – Zahl, keine Grafik (R4, R5). */
+.stat-split { color: var(--dim); font-size: 12px; margin-top: 6px; }
 .err-list { display: flex; flex-direction: column; gap: 6px; }
 .err-row { display: flex; align-items: center; gap: 14px; }
 .err-name { min-width: 190px; font-size: 14px; }

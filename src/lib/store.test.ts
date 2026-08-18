@@ -1,14 +1,14 @@
-// Tests der Stufenplan-Empfehlung (B-14, R11), des Migrationspfads (B-17, R25)
-// und der Stände je Einheit (B-16, R10). Ohne DOM: alles reine Funktionen des
-// Fortschritts – die Empfehlung markiert, sie sperrt nicht.
+// Tests der Stufenplan-Empfehlung (B-14, R11), des Migrationspfads (B-17, R25),
+// der Stände je Einheit (B-16, R10) und der getrennten Messung von Griff und
+// Zeit (B-24, R26). Ohne DOM: alles reine Funktionen über gespeicherten Daten.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KEYS } from '@/lib/music';
 import {
-  emptyProgress, folgenUnit, getStand, loadProgress, migrateProgress, migrateStats,
-  passTempo, recommendedNext, stufenUnit,
+  emptyProgress, folgenUnit, getStand, loadProgress, loadStats, migrateProgress, migrateStats,
+  passTempo, recommendedNext, recordAttempt, stufenUnit, weaknessWeights,
   SCHEMA_VERSION, START_TEMPO, TARGET_TEMPO, TEMPO_STEP,
-  type Progress,
+  type AttemptRecord, type Progress,
 } from '@/lib/store';
 
 const stage1 = KEYS.filter((k) => k.stage === 1);
@@ -77,7 +77,15 @@ const erwartetNachMigration: Progress = {
   stufen: { 'C-dur|A': { tempo: 72, done: false }, 'C-dur|B': { tempo: 60, done: true } },
   folgen: {},
 };
-const leereStatistik = { errors: {}, timing: {}, attempts: 0, hits: 0 };
+const leereAufschlüsselung = { attempts: 0, griffOk: 0, timingOk: 0, timingMeasured: 0 };
+const leereStatistik = { errors: {}, timing: {}, attempts: 0, hits: 0, split: leereAufschlüsselung };
+/** Fassung 1–3: dieselben Zahlen, aber ohne die Aufschlüsselung nach R26. */
+const alteStatistik = {
+  errors: { 'C-dur|C': { high: 2, low: 1, total: 3 } },
+  timing: { 'C-dur': [-12, 4] },
+  attempts: 9,
+  hits: 6,
+};
 
 describe('migrateProgress (R25)', () => {
   it('kein Eintrag ist kein Bruch: Standardwerte, Status ok', () => {
@@ -96,6 +104,13 @@ describe('migrateProgress (R25)', () => {
 
   it('übernimmt Fassung 2 – dieselbe Tabelle in der Hülle – verlustfrei', () => {
     const raw = JSON.stringify({ version: 2, data: altFassung1 });
+    expect(migrateProgress(raw)).toEqual({ data: erwartetNachMigration, status: 'migriert' });
+  });
+
+  // B-24: Die Nummer gilt für beide Fächer. Zog sie wegen der Statistik weiter,
+  // sind die Stände deshalb nicht kaputt – sie sind nur älter.
+  it('übernimmt die Stände der Vorgängerversion unverändert', () => {
+    const raw = JSON.stringify({ version: 3, data: erwartetNachMigration });
     expect(migrateProgress(raw)).toEqual({ data: erwartetNachMigration, status: 'migriert' });
   });
 
@@ -130,13 +145,27 @@ describe('migrateStats (R25)', () => {
   });
 
   it('übernimmt die Statistik der Fassung 1', () => {
-    const alt = { errors: { 'C-dur|C': { high: 2, low: 1, total: 3 } }, timing: { 'C-dur': [-12, 4] }, attempts: 9, hits: 6 };
-    expect(migrateStats(JSON.stringify(alt))).toEqual({ data: alt, status: 'migriert' });
+    expect(migrateStats(JSON.stringify(alteStatistik)))
+      .toEqual({ data: { ...alteStatistik, split: leereAufschlüsselung }, status: 'migriert' });
   });
 
-  it('übernimmt die Statistik der Fassung 2 – gleiche Form, neue Nummer', () => {
-    const raw = JSON.stringify({ version: 2, data: leereStatistik });
-    expect(migrateStats(raw)).toEqual({ data: leereStatistik, status: 'migriert' });
+  it('übernimmt die Statistik der Fassung 2 – gleiche Zahlen, neue Nummer', () => {
+    const raw = JSON.stringify({ version: 2, data: alteStatistik });
+    expect(migrateStats(raw))
+      .toEqual({ data: { ...alteStatistik, split: leereAufschlüsselung }, status: 'migriert' });
+  });
+
+  // B-24: Anschläge, Treffer, Fehler und Drift kommen unverändert an; nur die
+  // Aufschlüsselung beginnt bei null, weil die alten Zahlen sie nicht hergeben.
+  it('übernimmt einen Datensatz der Vorgängerversion ohne Verlust (R25)', () => {
+    const raw = JSON.stringify({ version: 3, data: alteStatistik });
+    const res = migrateStats(raw);
+    expect(res.status).toBe('migriert');
+    expect(res.data.attempts).toBe(9);
+    expect(res.data.hits).toBe(6);
+    expect(res.data.errors).toEqual(alteStatistik.errors);
+    expect(res.data.timing).toEqual(alteStatistik.timing);
+    expect(res.data.split).toEqual(leereAufschlüsselung);
   });
 
   it('fällt bei kaputten Timing-Werten zurück', () => {
@@ -226,5 +255,74 @@ describe('passTempo je Einheit', () => {
     expect(res.newTempo).toBe(76);
     const p = loadProgress().data;
     expect(getStand(p, stufenUnit('C-dur', 'B'))).toEqual({ tempo: 60, done: true });
+  });
+});
+
+// ── Griff und Zeit getrennt (B-24, R26) ──────────────────────────────────────
+
+describe('recordAttempt trennt Griff und Zeit (R26)', () => {
+  let speicher: Storage;
+  beforeEach(() => {
+    speicher = memoryStorage();
+    vi.stubGlobal('localStorage', speicher);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Ein Anschlag auf C-Dur; die gemessene Landung folgt dem Urteil über die Zeit. */
+  function anschlag(griffOk: boolean, timingOk: boolean | null, direction: 1 | -1 | 0 = 0): AttemptRecord {
+    return {
+      keyId: 'C-dur',
+      chordName: 'C-Dur',
+      griffOk,
+      timingOk,
+      direction,
+      timingOffset: timingOk === null ? null : timingOk ? 5 : 120,
+    };
+  }
+
+  it('lässt einen Timing-Fehler bei sitzendem Griff aus der Heatmap heraus (AK 1)', () => {
+    const s = recordAttempt(loadStats().data, anschlag(true, false));
+    expect(s.attempts).toBe(1);
+    expect(s.errors).toEqual({});
+    expect(s.hits).toBe(0);                     // Ton *und* Zeit: nicht bestanden
+    expect(s.split).toEqual({ attempts: 1, griffOk: 1, timingOk: 0, timingMeasured: 1 });
+    expect(s.timing['C-dur']).toEqual([120]);   // die Drift-Linie sieht ihn sehr wohl
+  });
+
+  it('ändert die Gewichte von Modus C durch einen Timing-Fehler nicht (AK 3)', () => {
+    const leer = loadStats().data;
+    const s = recordAttempt(leer, anschlag(true, false));
+    expect(weaknessWeights(s, 'C-dur', ['C-Dur', 'G-Dur']))
+      .toEqual(weaknessWeights(leer, 'C-dur', ['C-Dur', 'G-Dur']));
+  });
+
+  it('erhöht bei einem Fehlgriff genau einen Eintrag der Heatmap (AK 1, AK 3)', () => {
+    const s = recordAttempt(loadStats().data, anschlag(false, true, 1));
+    expect(s.errors).toEqual({ 'C-dur|C-Dur': { high: 1, low: 0, total: 1 } });
+    expect(weaknessWeights(s, 'C-dur', ['C-Dur', 'G-Dur'])).toEqual([2, 1]);
+  });
+
+  it('zählt als Treffer nur, was in Ton und Zeit steht (AK 4)', () => {
+    let s = recordAttempt(loadStats().data, anschlag(true, true));
+    s = recordAttempt(s, anschlag(false, true, -1));
+    s = recordAttempt(s, anschlag(true, false));
+    expect(s.attempts).toBe(3);
+    expect(s.hits).toBe(1);
+    expect(s.split).toEqual({ attempts: 3, griffOk: 2, timingOk: 2, timingMeasured: 3 });
+  });
+
+  it('behandelt eine nicht gemessene Zeit nicht als bestandene Zeit (R4)', () => {
+    const s = recordAttempt(loadStats().data, anschlag(true, null));
+    expect(s.hits).toBe(0);
+    expect(s.split).toEqual({ attempts: 1, griffOk: 1, timingOk: 0, timingMeasured: 0 });
+    expect(s.timing).toEqual({});               // ohne Messung kein Punkt in der Drift
+  });
+
+  it('schreibt die Statistik in der Hülle der aktuellen Version (R25)', () => {
+    recordAttempt(loadStats().data, anschlag(true, true));
+    const roh = JSON.parse(speicher.getItem('tribunal.stats.v1') ?? 'null');
+    expect(roh.version).toBe(SCHEMA_VERSION);
+    expect(roh.data.attempts).toBe(1);
+    expect(loadStats()).toEqual({ data: roh.data, status: 'ok' });
   });
 });

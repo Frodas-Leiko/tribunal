@@ -1,7 +1,7 @@
 // ── Statistik: Die Akte des Tribunals ────────────────────────────────────────
 
 import { useState } from 'react';
-import { loadProgress, loadStats, resetAll, SCHEMA_VERSION, type LoadStatus } from '@/lib/store';
+import { loadProgress, loadStats, resetAll, SCHEMA_VERSION, type LoadStatus, type SplitCount } from '@/lib/store';
 import { COLORS } from '@/components/Visuals';
 
 /** Namen der Datensätze, die beim Laden in diesem Zustand landeten. */
@@ -28,6 +28,21 @@ function schemaNote(progress: LoadStatus, stats: LoadStatus): string | null {
     return `${migrated.join(' und ')}: Datensatz einer älteren Fassung übernommen, jetzt Schema-Version ${SCHEMA_VERSION}.`;
   }
   return null;
+}
+
+/**
+ * R26: Die Trefferquote zerfällt in zwei Messungen – der Griff und die Zeit.
+ * Beide bekommen ihren Nenner dazu: Anschläge älterer Fassungen zählten beides
+ * in einer Zahl und stehen deshalb in keinem der beiden Anteile (R4).
+ */
+function splitLine(split: SplitCount): string {
+  const griff = split.attempts > 0
+    ? `Griff ${Math.round((split.griffOk / split.attempts) * 100)} % (${split.griffOk}/${split.attempts})`
+    : 'Griff – noch nicht getrennt gezählt';
+  const zeit = split.timingMeasured > 0
+    ? `Zeit ${Math.round((split.timingOk / split.timingMeasured) * 100)} % (${split.timingOk}/${split.timingMeasured})`
+    : 'Zeit – noch nicht gemessen';
+  return `${griff} · ${zeit}`;
 }
 
 export function Stats({ onReset }: { onReset: () => void }) {
@@ -71,6 +86,7 @@ export function Stats({ onReset }: { onReset: () => void }) {
             {accuracy}%
           </div>
           <div className="stat-label">Trefferquote (Ton + Zeit)</div>
+          <div className="stat-split">{splitLine(stats.split)}</div>
         </div>
       </div>
 

@@ -299,7 +299,10 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     notesRef.current = notesRef.current.filter((n) => n.time > cut);
 
     let feedback: Feedback;
-    let pitchOk = false;
+    // R26: zwei Aussagen, zwei Variablen. `timingOk === null` heißt „nicht
+    // gemessen" – das gilt hier nur für den Anschlag, der ausblieb.
+    let griffOk = false;
+    let timingOk: boolean | null = null;
     let direction: 1 | -1 | 0 = 0;
     let offset: number | null = null;
 
@@ -312,10 +315,14 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       const playedPcs = new Set(notes.map((n) => n.midi % 12));
       offset = notes[0].time - beatPerf;   // der erste Ton des Versuchs ist die Landung
       offsetsRef.current = [...offsetsRef.current, offset].slice(-12);
+      // R4: Jeder Anschlag wird auf Tonhöhe *und* Zeit gemessen – die Zeit auch
+      // dann, wenn der Griff daneben liegt. Die Landung steht fest, sobald ein
+      // Ton da ist; welcher Ton es war, entscheidet sie nicht mit.
+      timingOk = Math.abs(offset) <= config.tolerance;
 
       const allHit = [...targetPcs].every((pc) => playedPcs.has(pc));
       const noExtra = [...playedPcs].every((pc) => targetPcs.has(pc));
-      pitchOk = allHit && noExtra;
+      const pitchOk = allHit && noExtra;
 
       // R13: Übung 2 prüft zusätzlich das Register – gegen die Anker-Oktave, gemessen
       // am Grundton (B-12). Übung 1 prüft ausdrücklich keine Oktave.
@@ -330,21 +337,25 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
         }
       }
 
-      if (pitchOk && registerOk) {
-        if (Math.abs(offset) <= config.tolerance) {
+      // R13/R26: Die Zone gehört zum Griff. Ein Block in der falschen Oktave ist
+      // ein Platzierungsfehler der Hand, kein Fehler der Zeit.
+      griffOk = pitchOk && registerOk;
+
+      if (griffOk) {
+        if (timingOk) {
           feedback = { kind: 'ok', big: 'Richtig', small: `${offset > 0 ? '+' : ''}${Math.round(offset)} ms`, offsetMs: offset };
         } else {
+          // Töne richtig, Landung daneben: das zählt in der Drift-Linie und
+          // ausdrücklich nicht in der Fehler-Heatmap der Akkorde (R26).
           feedback = {
             kind: 'timing',
             big: `${Math.abs(Math.round(offset))} ms ${offset > 0 ? 'zu spät' : 'zu früh'}`,
             small: 'Tonlage stimmt – die Landung nicht. Reise mit dem Cursor.',
             offsetMs: offset,
           };
-          pitchOk = false;
         }
-      } else if (pitchOk && !registerOk) {
+      } else if (pitchOk) {
         feedback = { kind: 'wrong', big: registerMsg, small: 'Richtiger Block, falsche Zone.', offsetMs: offset };
-        pitchOk = false;
       } else {
         const vec = tribunal(cur.chord, playedPcs, key);
         direction = vec.direction;
@@ -355,7 +366,9 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
     const success = feedback.kind === 'ok';
     if (!success) streakRef.current = 0;
     const banner = success ? registerSuccess() : null;
-    statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, success, direction, offset);
+    statsRef.current = recordAttempt(statsRef.current, {
+      keyId: config.keyId, chordName: cur.chord.name, griffOk, timingOk, direction, timingOffset: offset,
+    });
 
     setHud((h) => h && ({
       ...h,
@@ -489,7 +502,12 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
 
     if (allHit && noExtra && registerOk) {
       const banner = registerSuccess();
-      statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, true, 0, null);
+      // Die Uhr steht noch – dieser Anschlag *ist* der Beat. Es gibt keine
+      // Abweichung zu messen, also behauptet die Akte auch keine (R4, R26).
+      statsRef.current = recordAttempt(statsRef.current, {
+        keyId: config.keyId, chordName: cur.chord.name,
+        griffOk: true, timingOk: null, direction: 0, timingOffset: null,
+      });
 
       // Uhr kalibrieren: der Anschlag IST der Beat
       const ctx = metro.context();
@@ -538,7 +556,10 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
         direction = vec.direction;
         feedback = { kind: 'wrong', big: vec.big, small: vec.small, offsetMs: null };
       }
-      statsRef.current = recordAttempt(statsRef.current, config.keyId, cur.chord.name, false, direction, null);
+      statsRef.current = recordAttempt(statsRef.current, {
+        keyId: config.keyId, chordName: cur.chord.name,
+        griffOk: false, timingOk: null, direction, timingOffset: null,
+      });
       setHud((h) => h && ({ ...h, feedback, streak: 0 }));
       streakRef.current = 0;
       metro.signal(false);
