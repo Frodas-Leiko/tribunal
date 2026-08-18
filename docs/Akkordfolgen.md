@@ -18,7 +18,7 @@ Alle Folgen sind reine Dreiklangs-Folgen und in jeder der 10 Tonarten spielbar.
 - **Status:** `vorhanden` · `korrigiert` · `neu`
 
 > ⚠️ **Voraussetzung:** Die mit **R15** markierten Folgen brauchen erst das erweiterte
-> Moll-Vokabular (Backlog **B-16**). Vorher sind sie in Moll nicht auflösbar und dürfen
+> Moll-Vokabular (Backlog **B-19**). Vorher sind sie in Moll nicht auflösbar und dürfen
 > nach R16 nicht stillschweigend gekürzt werden.
 
 ---

@@ -568,7 +568,10 @@ export function useSession(config: SessionConfig, onPass: () => void, audio: Aud
       // starten; hier steht der Riegel für den Fall, dass sie es doch tut.
       const res = resolveProgression(key, prog);
       if (!res.ok) {
-        throw new Error(`Akkordfolge „${prog.id}" ist in ${key.label} nicht auflösbar: Stufe ${res.missing.join(', ')}`);
+        const grund = res.grund === 'nicht-angeboten'
+          ? 'in diesem Tongeschlecht nicht angeboten'
+          : `Stufe ${res.missing.join(', ')} gibt es hier nicht`;
+        throw new Error(`Akkordfolge „${prog.id}" ist in ${key.label} nicht spielbar: ${grund}`);
       }
       chordsRef.current = res.chords;
     } else {

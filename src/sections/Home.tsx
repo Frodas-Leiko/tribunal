@@ -1,7 +1,7 @@
 // ── Stufenplan & Session-Setup ───────────────────────────────────────────────
 
 import { useMemo, useState } from 'react';
-import { KEYS, PROGRESSIONS, MODE_LABELS, resolveProgression, type KeyDef, type DictateMode } from '@/lib/music';
+import { KEYS, PROGRESSIONS, MODE_LABELS, unavailableReason, type KeyDef, type DictateMode } from '@/lib/music';
 import {
   getStand, isStageComplete, recommendedNext, stufenUnit, folgenUnit,
   PASS_STREAK, START_TEMPO, TARGET_TEMPO, type Progress, type UnitRef,
@@ -39,19 +39,21 @@ export function Home({ progress, onStart, openAudio }: {
 
   const stages = [1, 2, 3, 4, 5];
 
-  // B-21/R16: Eine Folge, deren Stufen es in dieser Tonart nicht gibt, ist nicht
-  // gesperrt – sie ist unmöglich. Das ist keine Ausnahme von R11: Der Akkord
-  // existiert hier schlicht nicht. Sie bleibt sichtbar, aber nicht startbar.
-  const unresolvable = useMemo(() => {
-    const map = new Map<string, string[]>();
+  // B-20/B-21: Nicht jede Folge passt zu jeder Einheit – weil das Tongeschlecht im
+  // Datensatz nicht angeboten ist, weil eine Stufe in dieser Tonart nicht existiert
+  // (R16) oder weil die Folge für Übung 2 zu lang ist. Keine Sperre nach R11: Alle
+  // drei Fälle sind Unmöglichkeiten, und jeder nennt seinen Grund, statt zu
+  // verschwinden (AK 3).
+  const blockiert = useMemo(() => {
+    const map = new Map<string, string>();
     if (!selected) return map;
     for (const p of PROGRESSIONS) {
-      const res = resolveProgression(selected, p);
-      if (!res.ok) map.set(p.id, res.missing);
+      const grund = unavailableReason(selected, p, exercise);
+      if (grund) map.set(p.id, grund);
     }
     return map;
-  }, [selected]);
-  const fehlendeStufen = source === 'progression' ? unresolvable.get(progId) ?? null : null;
+  }, [selected, exercise]);
+  const progGrund = source === 'progression' ? blockiert.get(progId) ?? null : null;
 
   // R11: Es gibt keine Sperre mehr – nur noch diesen Hinweis auf die nächste
   // Einheit. Er markiert, er verhindert nichts.
@@ -76,7 +78,7 @@ export function Home({ progress, onStart, openAudio }: {
   const chooseProg = (id: string) => { setProgId(id); setTempoOverride(null); };
 
   const start = () => {
-    if (!selected || fehlendeStufen) return;
+    if (!selected || progGrund) return;
     // R18: Der AudioContext entsteht genau hier – im Klick-Handler von
     // „Einheit starten" – und wird an die Session durchgereicht. Später ist die
     // Nutzergeste vorbei und der Kontext bliebe auf Tablets `suspended`.
@@ -188,18 +190,19 @@ export function Home({ progress, onStart, openAudio }: {
               <div className="setup-opts wrap">
                 {PROGRESSIONS.map((p) => {
                   const st = getStand(progress, folgenUnit(selected.id, p.id));
-                  const fehlt = unresolvable.get(p.id);
+                  const grund = blockiert.get(p.id);
                   return (
                     <span key={p.id} className="prog-chip">
                       <button
                         className={progId === p.id ? 'active' : ''}
                         onClick={() => chooseProg(p.id)}
-                        disabled={fehlt !== undefined}
-                        title={fehlt ? `Stufe ${fehlt.join(', ')} gibt es in ${selected.label} nicht.` : ''}
+                        disabled={grund !== undefined}
+                        title={grund ?? ''}
                       >
                         {p.name}{' '}
-                        {fehlt
-                          ? <em className="prog-unavailable">nicht verfügbar</em>
+                        {/* AK 3: ausgegraut mit Begründung, nicht versteckt. */}
+                        {grund
+                          ? <em className="prog-unavailable">{grund}</em>
                           : <em className={`prog-stand ${st.done ? 'done' : ''}`}>{st.done ? '✓' : st.tempo}</em>}
                       </button>
                       <button className="brief-btn" onClick={() => setBrief({ kind: 'prog', progId: p.id })}>ⓘ</button>
@@ -263,14 +266,11 @@ export function Home({ progress, onStart, openAudio }: {
             </div>
           </div>
 
-          {fehlendeStufen && (
-            <p className="setup-hint">
-              Diese Folge ist in {selected.label} nicht verfügbar: Stufe {fehlendeStufen.join(', ')} gibt es
-              in dieser Tonart nicht.
-            </p>
+          {progGrund && (
+            <p className="setup-hint">Diese Folge ist hier nicht verfügbar: {progGrund}</p>
           )}
 
-          <button className="start-btn" onClick={start} disabled={fehlendeStufen !== null}>
+          <button className="start-btn" onClick={start} disabled={progGrund !== null}>
             Einheit starten · {effectiveTempo} bpm
           </button>
         </section>

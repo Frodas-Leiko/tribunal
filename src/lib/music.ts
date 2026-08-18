@@ -250,80 +250,371 @@ export function chordForDegree(key: KeyDef, degree: string): ChordDef | null {
 // („nächstliegende Lage ab C4") und ist mit B-07 entfallen.
 
 // ── Akkordfolgen-Datenbank ──────────────────────────────────────────────────
+// Sollbestand: `docs/Akkordfolgen.md` (32 Folgen, Kategorien A–E). R14: Eine Folge
+// ist ein Datensatz, sonst nichts – kein `if` auf eine Folgen-Kennung, keine
+// Sonderbehandlung im Scheduler. Reihenfolge wie im Dokument (Nr. 1–32); die
+// abweichende Anzeige-Reihenfolge ist Sache der Auswahl (B-22).
+
+export type ProgressionKategorie = 'kadenz' | 'sequenz' | 'moll' | 'pop' | 'blues-jazz';
 
 export interface ProgressionDef {
   id: string;
   name: string;
-  degrees: { dur: string[]; moll: string[] };
+  kategorie: ProgressionKategorie;
+  /**
+   * `null` heißt: In diesem Tongeschlecht **bewusst nicht angeboten**. Das ist eine
+   * Eigenschaft des Datensatzes, kein Fehler – anders als eine Stufe, die es in der
+   * Tonart nicht gibt (R16). Beides führt zu „nicht verfügbar", mit verschiedener
+   * Begründung.
+   */
+  degrees: { dur: string[] | null; moll: string[] | null };
   logic: string;         // „Warum klingt das richtig?"
   fingeringHint: string;
+  /** Für Übung 2 (Systemsprung) freigegeben. Faustregel: bis 8 Akkorde ja. */
+  uebung2: boolean;
 }
 
+/**
+ * Stufenkette in der Schreibweise des Datensatzes: Akkorde durch Gedankenstrich
+ * getrennt, Taktgruppen (Blues) zusätzlich durch Leerzeichen. Damit steht hier
+ * dieselbe Zeile wie in `docs/Akkordfolgen.md` und lässt sich Zeichen für Zeichen
+ * vergleichen.
+ */
+const kette = (chain: string): string[] => chain.split(/[\s\u2013]+/).filter((d) => d.length > 0);
+
+// Die Wippen 24–26 teilen sich im Datensatz einen Text – hier wie dort.
+const WIPPE_LOGIK = 'Die kürzestmöglichen Folgen: zwei Mulden im ständigen Wechsel. Nicht als Musik gedacht, sondern als Werkzeug: Wer eine Wippe bei 100 bpm blind trifft, hat genau eine Muldenbeziehung gespeichert.';
+const WIPPE_FINGERSATZ = 'Immer denselben Weg gehen, immer die Hand komplett lösen. Diese drei Folgen sind der empfohlene Einstieg für jede neue Tonart – vor jeder Kadenz.';
+
 export const PROGRESSIONS: ProgressionDef[] = [
+  // ── A · Kadenzen und Schlusswendungen ─────────────────────────────────────
   {
     id: 'vollkadenz',
     name: 'Vollkadenz',
-    degrees: { dur: ['I', 'IV', 'V', 'I'], moll: ['i', 'iv', 'V', 'i'] },
-    logic: 'Heimat – Spannung – höchste Spannung – Rückkehr. Die Vollkadenz ist das Fundament der klassischen Harmonik: Subdominante und Dominante umklammern die Tonika.',
-    fingeringHint: 'Beim Wechsel I→IV wandert die ganze Mulde eine Stufe nach oben; bei V→I fällt sie zurück. Alle Akkorde bleiben im Fingersatz 1–3–5.',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – IV – V – I'), moll: kette('i – iv – V – i') },
+    logic: 'Heimat, Spannung, höchste Spannung, Rückkehr. Das harmonische Fundament: Subdominante und Dominante umklammern die Tonika.',
+    fingeringHint: 'I→IV wandert die ganze Mulde eine Stufe aufwärts, V→I fällt sie zurück. Durchgehend 1–3–5. Der Grundton bleibt in der Anker-Oktave (R12).',
+    uebung2: true,
   },
   {
     id: 'erweitert',
     name: 'Erweiterte Kadenz',
-    degrees: { dur: ['I', 'IV', 'I', 'V', 'I'], moll: ['i', 'iv', 'i', 'V', 'i'] },
-    logic: 'Die Rückkehr zur Tonika zwischen Sub- und Dominante verlangsamt die Kadenz und lehrt den Wechsel in beide Richtungen.',
-    fingeringHint: 'IV→I und I→V sind reine Mulden-Verschiebungen um je eine Stufe. Achte auf den Mittelfinger: Er trägt die Terz und damit Dur/Moll.',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – IV – I – V – I'), moll: kette('i – iv – i – V – i') },
+    logic: 'Die Rückkehr zur Tonika zwischen Sub- und Dominante verlangsamt die Kadenz und trainiert den Wechsel in beide Richtungen.',
+    fingeringHint: 'IV→I und I→V sind reine Mulden-Verschiebungen um je eine Stufe. Der Mittelfinger trägt die Terz und entscheidet über Dur oder Moll.',
+    uebung2: true,
   },
   {
     id: 'quintfall',
-    name: 'Quintfall',
-    degrees: { dur: ['ii', 'V', 'I'], moll: ['ii°', 'V', 'i'] },
-    logic: 'Der wichtigste Schluss der klassischen Harmonik: Die Stufen fallen in Quinten (ii→V→I). Maximale Zielstrebigkeit zur Tonika.',
-    fingeringHint: 'Drei Mulden im Abstand je einer Stufe: ii liegt direkt über I, V direkt darüber. Die Hand „klettert" und fällt dann zwei Stufen zurück.',
+    name: 'Quintfall (ii–V–I)',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('ii – V – I'), moll: kette('ii° – V – i') },
+    logic: 'Der wichtigste Schluss der klassischen Harmonik: die Stufen fallen in Quinten. Maximale Zielstrebigkeit zur Tonika.',
+    fingeringHint: 'Drei Mulden im Abstand je einer Stufe; die Hand klettert und fällt dann zwei Stufen zurück.',
+    uebung2: true,
   },
   {
+    id: 'doppelkadenz',
+    name: 'Kadenz mit Subdominantparallele',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – ii – V – I'), moll: kette('i – ii° – V – i') },
+    logic: 'Die zweite Stufe übernimmt die Rolle der Subdominante; der Bass schreitet in Sekunden statt zu springen.',
+    fingeringHint: 'I→ii ist ein Ganzton für alle drei Finger gleichzeitig – die Mulde bleibt exakt erhalten. Ideal als erste Sequenz-Erfahrung.',
+    uebung2: true,
+  },
+  {
+    id: 'plagal',
+    name: 'Plagalschluss („Amen-Schluss")',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('IV – I'), moll: kette('iv – i') },
+    logic: 'Zwei Akkorde, ein Schluss. Der weiche „Amen"-Fall ohne Leitton. Die kürzeste vollständige Wendung überhaupt.',
+    fingeringHint: 'IV und I teilen sich den Grundton der Tonika; nur zwei Finger bewegen sich wirklich. Perfekt zum Aufbau der ersten Griffmulde.',
+    uebung2: true,
+  },
+  {
+    id: 'halbschluss',
+    name: 'Halbschluss',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – ii – V'), moll: kette('i – ii° – V') },
+    logic: 'Die Kadenz, die offen bleibt: sie endet auf der Dominante und verlangt eine Fortsetzung. Trainiert das Hören von Spannung ohne Auflösung.',
+    fingeringHint: 'Zwei Ganztonschritte aufwärts. Die Hand bewegt sich nur in eine Richtung – gut für die Kalibrierung des Bewegungsgefühls.',
+    uebung2: true,
+  },
+  {
+    id: 'trugschluss',
+    name: 'Trugschluss',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – IV – V – vi'), moll: kette('i – iv – V – VI') },
+    logic: 'Die Dominante geht nicht heim, sondern zur Parallele. Der Ohr-Effekt ist verblüffend; die Hand lernt eine unerwartete Zielmulde.',
+    fingeringHint: 'V→vi ist ein einziger Halb- bzw. Ganztonschritt aufwärts – winzige Bewegung, große Wirkung. Genau hinhören, nicht hinsehen.',
+    uebung2: true,
+  },
+  {
+    id: 'wechselkadenz',
+    name: 'Wechselkadenz',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – V – I – IV – I'), moll: kette('i – V – i – iv – i') },
+    logic: 'Tonika im Wechsel mit ihren beiden Nachbarn. Die klassische Anfängerformel, um Dominante und Subdominante voneinander zu unterscheiden.',
+    fingeringHint: 'Die Hand pendelt um einen festen Mittelpunkt. Wer die Tonika-Mulde blind wiederfindet, hat die Übung bestanden.',
+    uebung2: true,
+  },
+  {
+    id: 'bassgang',
+    name: 'Große Kadenz (Bassgang)',
+    kategorie: 'kadenz',
+    degrees: { dur: kette('I – iii – vi – IV – V – I'), moll: kette('i – III – VI – iv – V – i') },
+    logic: 'Eine vollständige Rundreise durch die wichtigsten Stufen der Tonart: Tonika, ihre beiden Parallelen, Subdominante, Dominante, zurück.',
+    fingeringHint: 'Sechs Mulden hintereinander – die längste Folge, die noch ohne Blick machbar ist. Erst bei 60 bpm sicher, dann Tempo.',
+    uebung2: true,
+  },
+
+  // ── B · Sequenzen und Ketten ──────────────────────────────────────────────
+  {
     id: 'kanon',
-    name: 'Kanon-Sequenz',
-    degrees: { dur: ['I', 'V', 'vi', 'iii', 'IV', 'I', 'IV', 'V'], moll: ['i', 'V', 'VI', 'III', 'iv', 'i', 'iv', 'V'] },
-    logic: 'Das Pachelbel-Muster: eine Kette von Quintfällen, die sich durch die ganze Tonart spiralt. Steckt in hunderten klassischen und modernen Stücken.',
-    fingeringHint: 'Die Sprünge V→vi und iii→IV sind größer als eine Stufe – hier zählt die Topographie-Karte. Erst langsam, die Mulde komplett formen, bevor du landest.',
+    name: 'Kanon-Sequenz (Pachelbel)',
+    kategorie: 'sequenz',
+    degrees: { dur: kette('I – V – vi – iii – IV – I – IV – V'), moll: null },
+    logic: 'Das Pachelbel-Muster: eine Kette von Quintfällen, die sich durch die ganze Tonart spiralt. Steckt in hunderten klassischen und modernen Stücken. (In Moll bewusst nicht angeboten – Konzept §5.2.)',
+    fingeringHint: 'Die Sprünge V→vi und iii→IV sind größer als eine Stufe – hier zahlt die Topographie-Karte ein. Erst langsam, die Mulde komplett formen, dann landen.',
+    uebung2: true,
+  },
+  {
+    id: 'quintfallkette',
+    name: 'Quintfall-Kette (vollständig)',
+    kategorie: 'sequenz',
+    degrees: { dur: kette('I – IV – vii° – iii – vi – ii – V – I'), moll: kette('i – iv – VII – III – VI – ii° – V – i') },
+    logic: 'Alle sieben Stufen der Tonart in einer einzigen Quintfall-Spirale. Die vollständige Landkarte der Tonart in acht Griffen.',
+    fingeringHint: 'Der Bass fällt jedes Mal eine Quinte, die Hand steigt abwechselnd eine Stufe und fällt zwei. Die Königsübung für Modus A.',
+    uebung2: true,
+  },
+  {
+    id: 'sekundsequenz-auf',
+    name: 'Aufsteigende Sekundsequenz',
+    kategorie: 'sequenz',
+    degrees: { dur: kette('I – ii – iii – IV'), moll: kette('i – ii° – III – iv') },
+    logic: 'Vier Stufen im Gänsemarsch aufwärts. Die reinste Form der Mulden-Verschiebung: identische Handform, neuer Ort.',
+    fingeringHint: 'Jeder Wechsel ist eine Parallelverschiebung um eine Stufe. Kein Finger wechselt seine Rolle – die einzige Frage ist, ob die Hand den Abstand trifft.',
+    uebung2: true,
+  },
+  {
+    id: 'sekundsequenz-ab',
+    name: 'Absteigende Sekundsequenz (Lamento)',
+    kategorie: 'sequenz',
+    degrees: { dur: kette('I – vii° – vi – V'), moll: kette('i – VII – VI – v') },
+    logic: 'Die klagende Abwärtslinie. In Moll mit der natürlichen Moll-Dominante (v) – weich, ohne Leitton.',
+    fingeringHint: 'Abwärtsbewegungen fühlen sich anders an als Aufwärtsbewegungen: der Arm muss aktiv bremsen. Bewusst steuern, nicht fallen lassen.',
+    uebung2: true,
+  },
+  {
+    id: 'terzfallkette',
+    name: 'Terzfall-Kette',
+    kategorie: 'sequenz',
+    degrees: { dur: kette('I – vi – IV – ii'), moll: kette('i – VI – iv – ii°') },
+    logic: 'Der Bass fällt in Terzen. Zwei von drei Tönen bleiben bei jedem Wechsel liegen – hörbar weich, taktil anspruchsvoll.',
+    fingeringHint: 'Weil zwei Töne gemeinsam sind, verführt die Folge zum Kleben. Genau hier gilt: Hand komplett lösen, in der Luft neu formen (Konzept §3).',
+    uebung2: true,
+  },
+
+  // ── C · Moll-Wendungen ────────────────────────────────────────────────────
+  {
+    id: 'mollwendung',
+    name: 'Moll-Wendung / Andalusische Kadenz',
+    kategorie: 'moll',
+    degrees: { dur: null, moll: kette('i – VII – VI – V') },
+    logic: 'Die absteigende Moll-Formel von der Tonika über die tiefen Stufen zur Dominante. Von Flamenco bis Filmmusik. VII ist hier der Dur-Dreiklang auf der kleinen Septime (a-Moll → G-Dur), nicht der Leittondreiklang. Die Dur-Variante wird nach Konzept §5.2 bewusst nicht angeboten.',
+    fingeringHint: 'Drei Mulden fallen je eine Stufe abwärts, dann der Sprung zur Dominante mit ihrem Leitton – der einzige „fremde" Ton der Folge.',
+    uebung2: true,
+  },
+  {
+    id: 'mollkadenz-natur',
+    name: 'Natürliche Moll-Kadenz',
+    kategorie: 'moll',
+    degrees: { dur: null, moll: kette('i – iv – v – i') },
+    logic: 'Dieselbe Kadenz wie die Vollkadenz, aber mit der weichen Moll-Dominante statt der Dur-Dominante. Der direkte Hörvergleich macht deutlich, was der Leitton leistet.',
+    fingeringHint: 'Identische Mulden-Wege wie in der Vollkadenz – nur der Mittelfinger sitzt auf der Dominante einen Halbton tiefer. Ein Halbton, eine ganz andere Welt.',
+    uebung2: true,
+  },
+  {
+    id: 'mollaufstieg',
+    name: 'Moll-Aufstieg',
+    kategorie: 'moll',
+    degrees: { dur: null, moll: kette('i – III – iv – V') },
+    logic: 'Von der Moll-Tonika über die Dur-Parallele aufwärts zur Dominante. Zeigt, dass Moll-Tonarten Dur-Akkorde enthalten.',
+    fingeringHint: 'i→III teilt sich zwei Töne, die Hand rutscht nur eine Stufe. Der Weg iv→V ist der Standard-Kadenzschritt aus der Vollkadenz.',
+    uebung2: true,
+  },
+
+  // ── D · Pop und Songwriting ───────────────────────────────────────────────
+  {
+    id: 'achse',
+    name: 'Achse der Vier',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – V – vi – IV'), moll: kette('i – VI – III – VII') },
+    logic: 'Die meistgespielte Vier-Akkord-Folge der populären Musik. Vier Stufen, die in jeder Reihenfolge funktionieren, weil sie sich paarweise Töne teilen.',
+    fingeringHint: 'V→vi ist der kleinste Schritt der Folge, vi→IV der größte. Die Topographie-Karte zeigt beide Sprünge als Wechsel zwischen 2er- und 3er-Insel.',
+    uebung2: true,
+  },
+  {
+    id: 'achse-vi',
+    name: 'Achse ab der Parallele',
+    kategorie: 'pop',
+    degrees: { dur: kette('vi – IV – I – V'), moll: null },
+    logic: 'Dieselben vier Akkorde, aber ab der Moll-Parallele. Dieselbe Hand, ganz anderer Charakter – ein Hörexperiment mit identischer Geometrie.',
+    fingeringHint: 'Bewusst als eigene Übung: Die Hand darf sich nicht auf die gewohnte Startmulde verlassen (Konzept §4.5, „nie die Gewohnheit der Hand").',
+    uebung2: true,
   },
   {
     id: 'stufenweg',
-    name: 'Stufenweg',
-    degrees: { dur: ['I', 'vi', 'IV', 'V'], moll: ['i', 'VI', 'iv', 'V'] },
-    logic: 'Verbindet Tonika-Gegengewicht (vi) mit der Kadenz (IV–V). Eine der häufigsten Verbindungsformeln überhaupt.',
-    fingeringHint: 'I→vi ist ein Wechsel von Dur zur Parallel-Moll: Gleiche Mulden-Lage, aber der Grundton wandert. Mittelfinger prüft die Terz!',
+    name: 'Doo-Wop / Stufenweg (50er)',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – vi – IV – V'), moll: kette('i – VI – iv – V') },
+    logic: 'Verbindet das Tonika-Gegengewicht (vi) mit der Kadenz (IV–V). Eine der häufigsten Verbindungsformeln überhaupt.',
+    fingeringHint: 'I→vi ist der Wechsel zur Parallel-Moll: gleiche Lage, wandernder Grundton. Der Mittelfinger prüft die Terz.',
+    uebung2: true,
   },
   {
-    id: 'mollwendung',
-    name: 'Moll-Wendung',
-    degrees: { dur: ['I', 'V', 'vi', 'IV'], moll: ['i', 'VII', 'VI', 'V'] },
-    logic: 'Die absteigende Moll-Formel: Von der Tonika über die tiefen Stufen VII und VI zur Dominante. Bekannt aus Flamenco bis Filmmusik.',
-    fingeringHint: 'Drei Mulden fallen je eine Stufe abwärts (i→VII→VI), dann der Sprung zur Dominante. Die Abwärts-Bewegung fühlt sich anders an – bewusst steuern.',
+    id: 'turnaround',
+    name: 'Turnaround',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – vi – ii – V'), moll: kette('i – VI – ii° – V') },
+    logic: 'Die Rückkehrschleife: Sie endet auf der Dominante und führt zwingend an den Anfang zurück. Grundbaustein von Jazz-Standards und Popsongs.',
+    fingeringHint: 'Vier Mulden in fallenden Terzen und Quinten. Weil sich die Folge selbst zurückführt, eignet sie sich besonders für lange Serien.',
+    uebung2: true,
+  },
+  {
+    id: 'poppunk',
+    name: 'Pop-Wippe',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – IV – vi – V'), moll: kette('i – iv – VI – V') },
+    logic: 'Tonika, Subdominante, Parallele, Dominante. Der eingängigste Weg durch die Tonart, ohne einen einzigen Sprung über zwei Stufen.',
+    fingeringHint: 'IV→vi ist der einzige Terzschritt; alles andere sind Sekund- und Quintwege. Gute Folge, um das Tempo hochzuziehen.',
+    uebung2: true,
+  },
+  {
+    id: 'mollachse',
+    name: 'Moll-Achse',
+    kategorie: 'pop',
+    degrees: { dur: null, moll: kette('i – III – VII – VI') },
+    logic: 'Die Moll-Variante der Achse: von der Tonika über die Dur-Parallele abwärts. Der Standard moderner Moll-Songs.',
+    fingeringHint: 'Drei der vier Akkorde sind Dur-Dreiklänge – die Hand muss die kleine Terz nur einmal treffen. Übung für den Wechsel der Terz-Qualität.',
+    uebung2: true,
+  },
+  {
+    id: 'wippe-subdominante',
+    name: 'Zwei-Akkord-Wippe: Subdominante',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – IV'), moll: kette('i – iv') },
+    logic: WIPPE_LOGIK,
+    fingeringHint: WIPPE_FINGERSATZ,
+    uebung2: true,
+  },
+  {
+    id: 'wippe-dominante',
+    name: 'Zwei-Akkord-Wippe: Dominante',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – V'), moll: kette('i – V') },
+    logic: WIPPE_LOGIK,
+    fingeringHint: WIPPE_FINGERSATZ,
+    uebung2: true,
+  },
+  {
+    id: 'wippe-parallele',
+    name: 'Zwei-Akkord-Wippe: Parallele',
+    kategorie: 'pop',
+    degrees: { dur: kette('I – vi'), moll: kette('i – VI') },
+    logic: WIPPE_LOGIK,
+    fingeringHint: WIPPE_FINGERSATZ,
+    uebung2: true,
+  },
+
+  // ── E · Blues und Jazz (Dreiklangs-Fassungen) ─────────────────────────────
+  {
+    id: 'blues12',
+    name: '12-Takt-Blues',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('I I I I – IV IV I I – V IV I V'), moll: kette('i i i i – iv iv i i – V iv i V') },
+    logic: 'Das Grundgerüst des Blues in reiner Dreiklangs-Fassung: zwölf Takte, drei Akkorde, feste Reihenfolge. (Ohne Septakkorde – siehe Set B.)',
+    fingeringHint: 'Die langen Tonika-Strecken sind der eigentliche Test: Die Hand muss viermal dieselbe Mulde neu formen, statt liegenzubleiben.',
+    uebung2: false,
+  },
+  {
+    id: 'blues-quickchange',
+    name: 'Quick-Change-Blues',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('I IV I I – IV IV I I – V IV I V'), moll: kette('i iv i i – iv iv i i – V iv i V') },
+    logic: 'Wie der 12-Takt-Blues, aber mit dem frühen Ausflug zur Subdominante im zweiten Takt. Der Standard in Jazz- und Bluesrunden.',
+    fingeringHint: 'Der frühe Wechsel im zweiten Takt kommt für die Hand überraschend – genau darum ist er ein gutes Timing-Training.',
+    uebung2: false,
+  },
+  {
+    id: 'blues8',
+    name: '8-Takt-Blues',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('I – V – IV – IV – I – V – I – V'), moll: kette('i – V – iv – iv – i – V – i – V') },
+    logic: 'Die kompakte Blues-Form. Halb so lang, gleiche Logik, für Übung 2 noch handhabbar.',
+    fingeringHint: 'Der Wechsel V→IV ist ein Quintfall abwärts – ungewohnt, weil er gegen die klassische Kadenzrichtung läuft.',
+    uebung2: true,
+  },
+  {
+    id: 'rhythmchanges',
+    name: 'Rhythm-Changes-Kern (A-Teil)',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('I – vi – ii – V – I – vi – ii – V'), moll: kette('i – VI – ii° – V – i – VI – ii° – V') },
+    logic: 'Der A-Teil eines der meistgespielten Jazz-Formen, auf Dreiklänge reduziert: zwei Turnarounds hintereinander.',
+    fingeringHint: 'Acht Griffe, aber nur vier verschiedene Mulden. Die Wiederholung macht sie zur idealen Serien-Übung für das Erfolgskriterium.',
+    uebung2: true,
+  },
+  {
+    id: 'jazzkette',
+    name: 'Erweiterter Quintfall',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('iii – vi – ii – V – I'), moll: kette('III – VI – ii° – V – i') },
+    logic: 'Der Quintfall, um zwei Stufen nach vorn verlängert. Die längste zielgerichtete Bewegung, die die Tonart hergibt.',
+    fingeringHint: 'Fünf Mulden auf einer einzigen fallenden Quintlinie. Wer sie blind schafft, hat die Landkarte der Tonart verinnerlicht.',
+    uebung2: true,
+  },
+  {
+    id: 'modalwippe',
+    name: 'Modale Wippe',
+    kategorie: 'blues-jazz',
+    degrees: { dur: kette('I – ii'), moll: kette('i – VII') },
+    logic: 'Zwei Akkorde, die keine Kadenz bilden: Tonika und Nachbarstufe im Wechsel. Erzeugt den schwebenden, modalen Charakter moderner Musik.',
+    fingeringHint: 'Reine Parallelverschiebung um eine Stufe. Die einfachste denkbare Bewegung – ideal, um bei ±20 ms Toleranz zu üben.',
+    uebung2: true,
   },
 ];
 
 // ── Auflösung einer Akkordfolge (R16) ───────────────────────────────────────
 
 /**
- * Entweder die **vollständige** Akkordkette oder die Liste der Stufen, die es in
- * dieser Tonart nicht gibt – nie eine gekürzte Kette. Eine still verworfene Stufe
- * macht aus einer achtgliedrigen Folge klanglos eine siebengliedrige; der Nutzer
- * übt dann etwas anderes als das, was im Steckbrief steht (R16).
+ * Entweder die **vollständige** Akkordkette oder der Grund, warum es sie nicht gibt –
+ * nie eine gekürzte Kette. Eine still verworfene Stufe macht aus einer achtgliedrigen
+ * Folge klanglos eine siebengliedrige; der Nutzer übt dann etwas anderes als das, was
+ * im Steckbrief steht (R16).
+ *
+ * Die zwei Gründe sind verschieden schwer: `nicht-angeboten` ist eine Entscheidung des
+ * Datensatzes (B-20), `nicht-aufloesbar` ein Fehler, der laut werden muss (R16).
  */
 export type ProgressionResolution =
   | { ok: true; chords: ChordDef[] }
-  | { ok: false; missing: string[] };
+  | { ok: false; grund: 'nicht-angeboten' }
+  | { ok: false; grund: 'nicht-aufloesbar'; missing: string[] };
 
 // Einmal je Folge und Tonart: Die Auswahl fragt bei jedem Rendern nach, die
 // Wiederholung derselben Meldung trägt keine neue Information.
 const reported = new Set<string>();
 
 export function resolveProgression(key: KeyDef, prog: ProgressionDef): ProgressionResolution {
+  const degrees = prog.degrees[key.mode];
+  // Kein Fehler, sondern eine Eigenschaft des Datensatzes: Diese Folge wird in diesem
+  // Tongeschlecht bewusst nicht angeboten. Deshalb auch kein `console.error`.
+  if (degrees === null) return { ok: false, grund: 'nicht-angeboten' };
+
   const chords: ChordDef[] = [];
   const missing: string[] = [];
-  for (const degree of prog.degrees[key.mode]) {
+  for (const degree of degrees) {
     const chord = chordForDegree(key, degree);
     if (chord) chords.push(chord);
     else if (!missing.includes(degree)) missing.push(degree);
@@ -340,7 +631,24 @@ export function resolveProgression(key: KeyDef, prog: ProgressionDef): Progressi
       + `Stufe ${missing.join(', ')} gibt es in dieser Tonart nicht (R15, R16).`,
     );
   }
-  return { ok: false, missing };
+  return { ok: false, grund: 'nicht-aufloesbar', missing };
+}
+
+/**
+ * Warum diese Folge in dieser Einheit nicht spielbar ist – oder `null`, wenn sie es
+ * ist. Ein Grund, ein Satz (R3): Die Stufenkette gibt es in dieser Tonart nicht, das
+ * Tongeschlecht ist bewusst nicht angeboten (B-20), oder die Folge ist für Übung 2
+ * nicht freigegeben. Die Auswahl zeigt den Satz an, statt den Eintrag zu verstecken
+ * (R16, B-20 AK 3).
+ */
+export function unavailableReason(key: KeyDef, prog: ProgressionDef, exercise: 1 | 2): string | null {
+  const res = resolveProgression(key, prog);
+  if (!res.ok) {
+    if (res.grund === 'nicht-angeboten') return `Nur in ${key.mode === 'dur' ? 'Moll' : 'Dur'} angeboten.`;
+    return `Stufe ${res.missing.join(', ')} gibt es in ${key.label} nicht.`;
+  }
+  if (exercise === 2 && !prog.uebung2) return 'Nicht für Übung 2 freigegeben.';
+  return null;
 }
 
 // ── Steckbriefe der Timing-Trainings ────────────────────────────────────────

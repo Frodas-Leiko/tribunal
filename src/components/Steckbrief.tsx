@@ -45,9 +45,13 @@ export function KeyBrief({ k, anchor }: { k: KeyDef; anchor: number }) {
 }
 
 export function ProgressionBrief({ p, mode }: { p: ProgressionDef; mode: 'dur' | 'moll' }) {
+  // B-20: `null` heißt „in diesem Tongeschlecht bewusst nicht angeboten". Der
+  // Steckbrief sagt das, statt die Zeile leer zu lassen.
+  const degrees = p.degrees[mode];
+  const andere = mode === 'dur' ? 'Moll' : 'Dur';
   return (
     <>
-      <Row k="Stufen" v={p.degrees[mode].join(' → ')} />
+      <Row k="Stufen" v={degrees ? degrees.join(' → ') : `In ${mode === 'dur' ? 'Dur' : 'Moll'} nicht angeboten – diese Folge gibt es nur in ${andere}.`} />
       <Row k="Funktion" v={p.logic} />
       <Row k="Fingersatz" v={p.fingeringHint} />
     </>

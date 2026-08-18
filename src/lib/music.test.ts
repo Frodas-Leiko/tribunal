@@ -5,7 +5,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEGREE_VOCABULARY, KEYS, PROGRESSIONS, chordForDegree, diatonicChords, getKey, pcName,
-  resolveProgression, tribunal, type ChordDef, type ProgressionDef,
+  resolveProgression, tribunal, unavailableReason,
+  type ChordDef, type Mode, type ProgressionDef, type ProgressionKategorie,
 } from '@/lib/music';
 
 describe('deutsche Notennamen (R9)', () => {
@@ -322,7 +323,7 @@ describe('Moll-Wendung (B-19 AK 3)', () => {
     const prog = PROGRESSIONS.find((p) => p.id === 'mollwendung')!;
     const key = getKey('A-moll');
     expect(prog.degrees.moll).toEqual(['i', 'VII', 'VI', 'V']);
-    expect(prog.degrees.moll.map((d) => chordForDegree(key, d)?.name))
+    expect(prog.degrees.moll?.map((d) => chordForDegree(key, d)?.name))
       .toEqual(['A-Moll', 'G-Dur', 'F-Dur', 'E-Dur']);
   });
 });
@@ -333,29 +334,21 @@ describe('resolveProgression', () => {
   const kaputt: ProgressionDef = {
     id: 'test-unaufloesbar',
     name: 'Künstlich fehlerhaft',
+    kategorie: 'kadenz',
     // `VII` gibt es in Dur nicht – die Folge ist dort nicht auflösbar.
     degrees: { dur: ['I', 'VII', 'IV', 'V'], moll: ['i', 'VII', 'iv', 'V'] },
     logic: 'Nur für den Test.',
     fingeringHint: 'Nur für den Test.',
+    uebung2: true,
   };
-
-  it('löst jede Folge des Bestands in jeder Tonart vollständig auf', () => {
-    for (const key of KEYS) {
-      for (const prog of PROGRESSIONS) {
-        const res = resolveProgression(key, prog);
-        const wo = `${prog.id} in ${key.label}`;
-        expect(res.ok, wo).toBe(true);
-        expect(res.ok && res.chords.length, wo).toBe(prog.degrees[key.mode].length);
-      }
-    }
-  });
 
   it('kürzt eine fehlerhafte Folge nicht, sondern nennt die fehlenden Stufen (AK 3)', () => {
     const fehler = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const res = resolveProgression(getKey('C-dur'), kaputt);
       expect(res.ok).toBe(false);
-      expect(res.ok === false && res.missing).toEqual(['VII']);
+      expect(res.ok === false && res.grund).toBe('nicht-aufloesbar');
+      expect(res.ok === false && res.grund === 'nicht-aufloesbar' && res.missing).toEqual(['VII']);
       // Nicht n−1: es gibt gar keine Kette.
       expect('chords' in res).toBe(false);
       // R16: laut – mit Folge, Tonart und Stufe
@@ -368,9 +361,174 @@ describe('resolveProgression', () => {
     }
   });
 
+  it('meldet eine bewusst nicht angebotene Kette leise – das ist kein Fehler (B-20)', () => {
+    const fehler = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const nurMoll: ProgressionDef = { ...kaputt, id: 'test-nur-moll', degrees: { dur: null, moll: ['i', 'iv'] } };
+      const res = resolveProgression(getKey('C-dur'), nurMoll);
+      expect(res.ok).toBe(false);
+      expect(res.ok === false && res.grund).toBe('nicht-angeboten');
+      expect(fehler).not.toHaveBeenCalled();
+    } finally {
+      fehler.mockRestore();
+    }
+  });
+
   it('löst dieselbe Folge in Moll vollständig auf – dort gibt es VII (R15)', () => {
     const res = resolveProgression(getKey('A-moll'), kaputt);
     expect(res.ok).toBe(true);
     expect(res.ok && res.chords.map((c) => c.name)).toEqual(['A-Moll', 'G-Dur', 'D-Moll', 'E-Dur']);
+  });
+});
+
+// ── Akkordfolgen-Datensatz (B-20, R14) ──────────────────────────────────────
+// Geprüft wird gegen die Zahlen aus `docs/Akkordfolgen.md`, nicht gegen den Code:
+// 32 Folgen in fünf Kategorien mit 9 · 5 · 3 · 9 · 6 Einträgen.
+
+describe('PROGRESSIONS · Bestand (AK 1, AK 2)', () => {
+  it('enthält 32 Folgen', () => {
+    expect(PROGRESSIONS).toHaveLength(32);
+  });
+
+  it('verteilt sie wie im Datensatz auf die fünf Kategorien', () => {
+    const soll: Record<ProgressionKategorie, number> = {
+      kadenz: 9, sequenz: 5, moll: 3, pop: 9, 'blues-jazz': 6,
+    };
+    const ist = {} as Record<ProgressionKategorie, number>;
+    for (const p of PROGRESSIONS) ist[p.kategorie] = (ist[p.kategorie] ?? 0) + 1;
+    expect(ist).toEqual(soll);
+  });
+
+  it('hält jede Kategorie zusammen – Reihenfolge A B C D E wie im Dokument', () => {
+    const reihenfolge: ProgressionKategorie[] = [];
+    for (const p of PROGRESSIONS) {
+      if (reihenfolge[reihenfolge.length - 1] !== p.kategorie) reihenfolge.push(p.kategorie);
+    }
+    expect(reihenfolge).toEqual(['kadenz', 'sequenz', 'moll', 'pop', 'blues-jazz']);
+  });
+
+  it('vergibt jede id genau einmal', () => {
+    const ids = PROGRESSIONS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('lässt Name, Logik und Fingersatz nirgends leer', () => {
+    for (const p of PROGRESSIONS) {
+      expect(p.name.trim().length, p.id).toBeGreaterThan(0);
+      expect(p.logic.trim().length, p.id).toBeGreaterThan(0);
+      expect(p.fingeringHint.trim().length, p.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('bietet jede Folge in mindestens einem Tongeschlecht an', () => {
+    for (const p of PROGRESSIONS) {
+      expect(p.degrees.dur ?? p.degrees.moll, p.id).not.toBeNull();
+    }
+  });
+
+  it('behält die sechs bestehenden Kennungen – der Fortschritt aus B-16 bleibt gültig', () => {
+    const ids = PROGRESSIONS.map((p) => p.id);
+    for (const id of ['vollkadenz', 'erweitert', 'quintfall', 'kanon', 'stufenweg', 'mollwendung']) {
+      expect(ids, id).toContain(id);
+    }
+  });
+
+  it('übernimmt die Längen der Stufenketten aus dem Datensatz', () => {
+    // Stichproben quer durch die Kategorien; die Blues-Formen sind die einzigen
+    // Ketten, die über acht Glieder hinausgehen.
+    const laenge = (id: string, mode: Mode) => PROGRESSIONS.find((p) => p.id === id)?.degrees[mode]?.length ?? null;
+    expect(laenge('plagal', 'dur')).toBe(2);
+    expect(laenge('bassgang', 'moll')).toBe(6);
+    expect(laenge('quintfallkette', 'moll')).toBe(8);
+    expect(laenge('blues12', 'dur')).toBe(12);
+    expect(laenge('blues-quickchange', 'moll')).toBe(12);
+    expect(laenge('blues8', 'dur')).toBe(8);
+    expect(laenge('rhythmchanges', 'moll')).toBe(8);
+  });
+
+  it('sperrt genau die beiden Zwölftakter für Übung 2', () => {
+    const ohneUe2 = PROGRESSIONS.filter((p) => !p.uebung2).map((p) => p.id);
+    expect(ohneUe2).toEqual(['blues12', 'blues-quickchange']);
+  });
+
+  it('bietet die korrigierten Fälle nur im vorgesehenen Tongeschlecht an', () => {
+    const prog = (id: string) => PROGRESSIONS.find((p) => p.id === id)!;
+    // Konzept §5.2: Die Moll-Wendung hat keine Dur-Variante …
+    expect(prog('mollwendung').degrees.dur).toBeNull();
+    // … und der Kanon keine Moll-Variante.
+    expect(prog('kanon').degrees.moll).toBeNull();
+    // Die frühere Dur-Variante der Moll-Wendung ist die Achse der Vier.
+    expect(prog('achse').degrees.dur).toEqual(['I', 'V', 'vi', 'IV']);
+  });
+});
+
+describe('PROGRESSIONS · Auflösung in jeder Tonart (AK 5)', () => {
+  it('löst 32 Folgen × 10 Tonarten ohne Verlust auf', () => {
+    let aufgeloest = 0;
+    let nichtAngeboten = 0;
+    for (const key of KEYS) {
+      for (const prog of PROGRESSIONS) {
+        const wo = `${prog.id} in ${key.label}`;
+        const degrees = prog.degrees[key.mode];
+        const res = resolveProgression(key, prog);
+        if (degrees === null) {
+          // Bewusst nicht angeboten – gemeldet, nicht stillschweigend leer (R16).
+          expect(res.ok, wo).toBe(false);
+          expect(res.ok === false && res.grund, wo).toBe('nicht-angeboten');
+          nichtAngeboten += 1;
+          continue;
+        }
+        expect(res.ok, wo).toBe(true);
+        // Dieselbe Länge wie die Stufenkette: kein Eintrag geht verloren (B-21).
+        expect(res.ok && res.chords.length, wo).toBe(degrees.length);
+        expect(res.ok && res.chords.map((c) => c.degree), wo).toEqual(degrees);
+        aufgeloest += 1;
+      }
+    }
+    // Vier Folgen gibt es nur in Moll (mollwendung, mollkadenz-natur, mollaufstieg,
+    // mollachse), zwei nur in Dur (kanon, achse-vi):
+    // 5 Dur-Tonarten × 4 + 5 Moll-Tonarten × 2 = 30.
+    expect(nichtAngeboten).toBe(30);
+    expect(aufgeloest).toBe(32 * 10 - 30);
+  });
+
+  it('benutzt ausschließlich Stufenbezeichner aus dem Vokabular (R15)', () => {
+    for (const mode of ['dur', 'moll'] as Mode[]) {
+      for (const prog of PROGRESSIONS) {
+        for (const degree of prog.degrees[mode] ?? []) {
+          expect(DEGREE_VOCABULARY[mode], `${prog.id} (${mode}): ${degree}`).toContain(degree);
+        }
+      }
+    }
+  });
+});
+
+describe('unavailableReason (AK 3)', () => {
+  const prog = (id: string) => PROGRESSIONS.find((p) => p.id === id)!;
+
+  it('nennt für ein nicht angebotenes Tongeschlecht das andere', () => {
+    expect(unavailableReason(getKey('C-dur'), prog('mollwendung'), 1)).toBe('Nur in Moll angeboten.');
+    expect(unavailableReason(getKey('A-moll'), prog('kanon'), 1)).toBe('Nur in Dur angeboten.');
+  });
+
+  it('schweigt, wo die Folge spielbar ist', () => {
+    expect(unavailableReason(getKey('A-moll'), prog('mollwendung'), 1)).toBeNull();
+    expect(unavailableReason(getKey('C-dur'), prog('kanon'), 2)).toBeNull();
+  });
+
+  it('nennt die Übung-2-Sperre nur in Übung 2', () => {
+    expect(unavailableReason(getKey('C-dur'), prog('blues12'), 1)).toBeNull();
+    expect(unavailableReason(getKey('C-dur'), prog('blues12'), 2)).toBe('Nicht für Übung 2 freigegeben.');
+  });
+
+  it('gibt für jede Kombination aus Bestand, Tonart und Übung entweder null oder einen Satz', () => {
+    for (const key of KEYS) {
+      for (const p of PROGRESSIONS) {
+        for (const exercise of [1, 2] as const) {
+          const grund = unavailableReason(key, p, exercise);
+          if (grund !== null) expect(grund.length, `${p.id} in ${key.label} (Ü${exercise})`).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });
