@@ -17,7 +17,7 @@ Abarbeitung von oben nach unten. Ein Item = ein Commit-Bereich (Regelwerk §5).
 | **P2** | Alle Level jederzeit spielbar, Fortschritt korrekt | B-14 … B-18 |
 | **P3** | Inhalte: Akkordfolgen und Moll-Vokabular | B-19 … B-23 |
 | **P4** | Konzepttreue, Messqualität, Aufräumen | B-24 … B-31 |
-| **P5** | Nachgereichte Befunde aus der Abnahme | B-33 |
+| **P5** | Nachgereichte Befunde aus der Abnahme | B-33 · B-34 |
 
 ---
 
@@ -641,6 +641,60 @@ Hand ist nur nötig, wenn der Browser diese Prüfung noch nicht gemacht hat.
 
 ---
 
+### B-34 · Cloudflare Pages kann die Abhängigkeiten nicht holen
+**Regel:** §5.1 · **Konzept:** §7 · **Aufwand:** trivial · **Dateien:** `package-lock.json`, `package.json`, neu `.nvmrc`
+
+**Befund (gemessen, 20.08.2026).** Der Build läuft auf dem Entwicklungsrechner und
+scheitert auf Cloudflare Pages, bevor eine Zeile übersetzt wird.
+
+1. **Die Sperrdatei zeigte auf einen internen Spiegel.** 117 der 413 Einträge in
+   `package-lock.json` trugen als `resolved` eine Adresse auf
+   `npm.mirrors.msh.team` – den Paketspiegel der Umgebung, in der dieses Projekt
+   entstanden ist. Der Host ist öffentlich nicht auflösbar. `npm ci` hält sich an
+   die Adressen der Sperrdatei und bricht mit `ENOTFOUND` ab.
+2. **Auf dem Rechner fiel das nie auf, weil der npm-Cache einsprang.** Zweimal
+   gemessen, beide Male mit der Sperrdatei aus `HEAD`: mit vorhandenem Cache
+   „added 364 packages in 1s" ohne einen einzigen Netzzugriff, mit leerem
+   Cache-Verzeichnis derselbe `ENOTFOUND`, den Cloudflare meldet.
+3. **Die Node-Version stand nirgends.** Keine `.nvmrc`, kein `engines`, kein
+   `packageManager`. `vite` 7.3 und `@vitejs/plugin-react` 5.1 verlangen
+   `^20.19.0 || >=22.12.0`; der Entwicklungsrechner läuft auf 22.22.1 und merkt
+   davon nichts, eine Build-Umgebung mit älterer Vorgabe schon.
+
+Das Kimi-Plugin aus `vite.config.ts` ist unverdächtig: `kimi-plugin-inspect-react`
+liegt in Fassung 1.0.3 öffentlich auf npm, nachgesehen gegen `registry.npmjs.org`.
+
+**Umbau**
+- In `package-lock.json` nur den **Host** ersetzen: `npm.mirrors.msh.team` →
+  `registry.npmjs.org`. Die Pfadform ist identisch, und die `integrity`-Prüfsummen
+  bleiben gültig, weil es dieselben Tarballs sind – es driftet keine einzige
+  Abhängigkeit. Ein Neuerzeugen der Sperrdatei täte das sehr wohl und wäre für
+  einen Adressfehler die falsche Antwort.
+- `.nvmrc` mit `22` anlegen und `engines.node` in `package.json` auf genau die
+  Spanne setzen, die die Werkzeuge verlangen.
+
+**Akzeptanzkriterien**
+1. Keine Adresse in `package-lock.json` zeigt auf einen anderen Host als
+   `registry.npmjs.org`.
+2. `npm ci` gelingt mit **leerem** Cache-Verzeichnis; die Prüfung darf sich nicht
+   auf einen vorhandenen Cache stützen.
+3. Ein sauberer Checkout baut vollständig durch und legt `dist/` mit `index.html`,
+   `assets/`, `sw.js` und Manifest an.
+4. Die geforderte Node-Version steht im Repo, nicht nur im Kopf des Entwicklers.
+
+**Prüfweg**
+- AK 1: Hosts in der Sperrdatei auszählen.
+- AK 2/3: Tracked-Dateien in ein leeres Verzeichnis kopieren, dann
+  `npm ci --cache <leeres Verzeichnis>` und `npm run build` – dieselbe Abfolge, die
+  Cloudflare fährt.
+
+**Anmerkung.** Der Fehler ist eine Eigenheit der Herkunft dieses Projekts, keine der
+App. Er kehrt zurück, sobald jemand `npm install` wieder in einer Umgebung mit
+eigenem Spiegel laufen lässt – AK 1 ist deshalb bei jedem Sperrdatei-Wechsel erneut
+zu prüfen.
+
+---
+
 ## Empfohlene Reihenfolge
 
 ```
@@ -650,7 +704,8 @@ B-07 → B-08 → B-09 → B-10 → B-11 → B-12      P1
 B-14 → B-15 → B-17 → B-18 → B-16             P2
 B-19 → B-20 → B-21 → B-22 → B-23             P3
 B-24 → B-25 → B-26 → B-27 → B-29             P4
-B-33                                         P5, Befund aus der Abnahme von P4
+B-33 → B-34                                  P5, Befunde aus der Abnahme von P4
+                                             (B-34 blockiert die Auslieferung, zuerst)
 B-13, B-30, B-31, B-32                       nach Entscheidung ❓
 ```
 
